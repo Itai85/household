@@ -66,6 +66,7 @@ export function AddServiceScreen({ editId, onDone }: Props) {
   const [svc, setSvc] = useState<Service>(emptyService());
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [dollars, setDollars] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (editId) {
@@ -86,9 +87,14 @@ export function AddServiceScreen({ editId, onDone }: Props) {
     setSvc(prev => ({ ...prev, [key]: val }));
 
   const handleSave = async () => {
-    if (!svc.nickname.trim()) return;
+    if (!svc.nickname.trim() || saving) return;
+    setSaving(true);
     const amountCents = Math.round(parseFloat(dollars || '0') * 100);
-    await app.saveService({ ...svc, amountCents, updatedAt: today() });
+    try {
+      await app.saveService({ ...svc, amountCents, updatedAt: today() });
+    } catch (err) {
+      console.error('Save failed (but service may have been created):', err);
+    }
     onDone();
   };
 
@@ -209,8 +215,8 @@ export function AddServiceScreen({ editId, onDone }: Props) {
       )}
 
       <div className="row">
-        <button className="btn btn--primary" onClick={handleSave}>
-          {editId ? 'Save Changes' : 'Add Service'}
+        <button className="btn btn--primary" onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving…' : editId ? 'Save Changes' : 'Add Service'}
         </button>
         <button className="btn" onClick={onDone}>Cancel</button>
       </div>
