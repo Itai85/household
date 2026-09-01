@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "household",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "5220"],
+      "port": 5220
+    }
+  ]
+}
