@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { v4 as uuid } from 'uuid';
 import { useApp } from '../store/AppContext';
+import { saveService as storageSave } from '../platform/storage';
 import {
   CATEGORY_GROUPS, FREQUENCY_LABELS,
   type Service, type ServiceCategory, type BillingFrequency,
@@ -91,11 +92,17 @@ export function AddServiceScreen({ editId, onDone }: Props) {
     setSaving(true);
     const amountCents = Math.round(parseFloat(dollars || '0') * 100);
     try {
-      await app.saveService({ ...svc, amountCents, updatedAt: today() });
+      // Save directly to storage (single fast upsert)
+      await storageSave({ ...svc, amountCents, updatedAt: today() });
     } catch (err) {
-      console.error('Save failed (but service may have been created):', err);
+      console.error('Save failed:', err);
+      setSaving(false);
+      return;
     }
+    // Navigate back immediately — don't wait for full reload
     onDone();
+    // Refresh service list in background
+    app.reload().catch(() => {});
   };
 
   const group = CAT_TO_GROUP[svc.category] || 'other';
