@@ -64,6 +64,25 @@ export function DocDetailScreen({ serviceId, docId, onBack }: Props) {
       docDate,
       userEdits: { overrides, hidden, custom, notes },
     });
+
+    // Propagate overrides to the service's tariffHistory so the
+    // ServiceDetailScreen shows the edited values immediately.
+    const svc = app.services.find(s => s.id === serviceId);
+    if (svc && Object.keys(overrides).length > 0) {
+      let changed = false;
+      const updated = svc.tariffHistory.map(entry => {
+        // Match by docId + label
+        if (entry.docId === docId && overrides[entry.label] != null) {
+          changed = true;
+          return { ...entry, value: overrides[entry.label]! };
+        }
+        return entry;
+      });
+      if (changed) {
+        await app.saveService({ ...svc, tariffHistory: updated, updatedAt: today() });
+      }
+    }
+
     setDirty(false);
     await load();
   };

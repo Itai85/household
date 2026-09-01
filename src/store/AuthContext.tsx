@@ -4,6 +4,7 @@
  */
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { isSupabaseConfigured, getSupabase } from '../platform/supabase';
+import { setCloudMode } from '../platform/storage';
 import type { User, Session } from '@supabase/supabase-js';
 
 interface AuthState {
@@ -41,6 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
+      setCloudMode(!!session?.user);
       setLoading(false);
     });
 
@@ -48,6 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setUser(session?.user ?? null);
+        setCloudMode(!!session?.user);
       },
     );
 
@@ -80,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const supabase = getSupabase();
     await supabase.auth.signOut();
     setUser(null);
+    setCloudMode(false);
   }, []);
 
   const deleteAccount = useCallback(async () => {
