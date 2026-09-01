@@ -4,7 +4,7 @@ import { useApp } from '../store/AppContext';
 import { parseDocument } from '../platform/document-parser';
 import { extractText } from '../platform/document-reader';
 import { llmParse, type LlmParseResult } from '../platform/llm-parser';
-import { getApiKey } from '../platform/storage';
+import { getAiConfig } from '../platform/storage';
 import type { Service, Bill, Document as Doc, TariffEntry } from '../types';
 import { money, humanise, formatDate, monthlyAmount, FREQUENCY_LABELS, DOC_TYPE_LABELS, today, USAGE_CATEGORIES, USAGE_UNITS } from '../types';
 import { forecastNextBill, type ForecastResult } from '../platform/forecast';
@@ -59,7 +59,7 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
 
     try {
       const allDocs = await app.getDocs(serviceId);
-      const apiKey = getApiKey();
+      const aiConfig = getAiConfig();
       const allEntries: TariffEntry[] = [];
       let summary = '';
 
@@ -87,9 +87,9 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
         if (!text) continue;
 
         let result;
-        if (apiKey) {
-          setReparseStatus(`Analysing ${doc.fileName || doc.title} with Claude (${i + 1}/${allDocs.length})...`);
-          const llmResult = await llmParse(text, apiKey, status => {
+        if (aiConfig) {
+          setReparseStatus(`Analysing ${doc.fileName || doc.title} with AI (${i + 1}/${allDocs.length})...`);
+          const llmResult = await llmParse(text, aiConfig, status => {
             setReparseStatus(`${status} (${i + 1}/${allDocs.length})`);
           });
           if (llmResult) {
