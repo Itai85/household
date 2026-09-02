@@ -1028,10 +1028,17 @@ const KNOWN_PROVIDERS: ProviderInfo[] = [
   { name: 'NAB',                 aliases: ['nab', 'national australia bank'],                    categories: ['BANK_FEES'] },
   { name: 'ING',                 aliases: ['ing'],                                               categories: ['BANK_FEES'] },
   { name: 'Macquarie',           aliases: ['macquarie bank'],                                    categories: ['BANK_FEES'] },
-  // Software
+  // Software / SaaS
+  { name: 'Anthropic',           aliases: ['anthropic', 'claude pro', 'claude team', 'claude max'],  categories: ['SOFTWARE'] },
+  { name: 'OpenAI',              aliases: ['openai', 'chatgpt'],                                 categories: ['SOFTWARE'] },
   { name: 'Microsoft',           aliases: ['microsoft 365', 'microsoft office'],                 categories: ['SOFTWARE'] },
   { name: 'Adobe',               aliases: ['adobe creative', 'adobe'],                           categories: ['SOFTWARE'] },
   { name: 'Google',              aliases: ['google one', 'google workspace'],                    categories: ['SOFTWARE'] },
+  { name: 'GitHub',              aliases: ['github'],                                            categories: ['SOFTWARE'] },
+  { name: 'Notion',              aliases: ['notion'],                                            categories: ['SOFTWARE'] },
+  { name: 'Slack',               aliases: ['slack'],                                             categories: ['SOFTWARE'] },
+  { name: 'Dropbox',             aliases: ['dropbox'],                                           categories: ['SOFTWARE'] },
+  { name: '1Password',           aliases: ['1password'],                                         categories: ['SOFTWARE'] },
   // Transport
   { name: 'Opal',                aliases: ['opal card', 'opal'],                                 categories: ['PUBLIC_TRANSPORT'] },
   { name: 'Myki',                aliases: ['myki'],                                              categories: ['PUBLIC_TRANSPORT'] },
@@ -1081,7 +1088,7 @@ function detectCategory(text: string): ServiceCategory | null {
     ['LANDLINE',    ['landline', 'home phone', 'fixed line', 'home line']],
     ['PUBLIC_TRANSPORT', ['opal', 'myki', 'go card', 'transit', 'public transport', 'transport pass', 'metro']],
     ['STREAMING',   ['streaming', 'subscription', 'netflix', 'disney', 'spotify', 'stan', 'binge', 'kayo']],
-    ['SOFTWARE',    ['software', 'license', 'licence', 'saas', 'cloud storage', 'microsoft 365', 'adobe']],
+    ['SOFTWARE',    ['software', 'license', 'licence', 'saas', 'cloud storage', 'microsoft 365', 'adobe', 'anthropic', 'claude pro', 'openai', 'chatgpt', 'api key', 'developer tools']],
     ['GYM',         ['gym', 'fitness', 'health club', 'membership', 'personal training']],
     ['SUBSCRIPTION_BOX', ['subscription box', 'monthly box', 'delivery box', 'curated box']],
     ['BANK_FEES',   ['bank fee', 'account keeping fee', 'service fee', 'card fee', 'annual fee', 'monthly account fee']],
