@@ -1,36 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useAuth } from '../store/AuthContext';
-import { getLocalDataCount, migrateLocalToCloud, type MigrationResult } from '../platform/migrate';
 
 export function LoginScreen() {
-  const { signInWithGoogle, signInWithEmail, user } = useAuth();
+  const { signInWithGoogle, signInWithEmail } = useAuth();
   const [email, setEmail] = useState('');
   const [emailSent, setEmailSent] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
-  // Migration state
-  const [localCount, setLocalCount] = useState<{ services: number; bills: number; documents: number; files: number } | null>(null);
-  const [migrating, setMigrating] = useState(false);
-  const [migrationResult, setMigrationResult] = useState<MigrationResult | null>(null);
-
-  useEffect(() => {
-    getLocalDataCount().then(setLocalCount);
-  }, []);
-
-  const hasLocalData = localCount && (localCount.services > 0 || localCount.bills > 0 || localCount.documents > 0);
-
-  const handleMigrate = async () => {
-    setMigrating(true);
-    setError('');
-    try {
-      const result = await migrateLocalToCloud();
-      setMigrationResult(result);
-    } catch (err) {
-      setError(`Migration failed: ${(err as Error).message}`);
-    }
-    setMigrating(false);
-  };
 
   const handleGoogle = async () => {
     setLoading(true);
