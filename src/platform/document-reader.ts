@@ -13,13 +13,24 @@ export async function extractText(
   file: File,
   onProgress?: (p: OcrProgress) => void,
 ): Promise<string> {
-  if (file.type === 'application/pdf') {
-    return extractPdfText(file, onProgress);
+  try {
+    if (file.type === 'application/pdf') {
+      return await extractPdfText(file, onProgress);
+    }
+    if (file.type.startsWith('image/')) {
+      return await ocrImage(file, onProgress);
+    }
+    throw new Error(`Unsupported file type: ${file.type}`);
+  } catch (err: any) {
+    // Stale chunk after a new deploy — auto-reload to pick up fresh assets
+    if (err?.message?.includes('dynamically imported module') || err?.message?.includes('Failed to fetch')) {
+      console.warn('Stale chunk detected, reloading page…', err);
+      window.location.reload();
+      // Return a never-resolving promise so the UI doesn't flash an error
+      return new Promise<string>(() => {});
+    }
+    throw err;
   }
-  if (file.type.startsWith('image/')) {
-    return ocrImage(file, onProgress);
-  }
-  throw new Error(`Unsupported file type: ${file.type}`);
 }
 
 async function extractPdfText(
