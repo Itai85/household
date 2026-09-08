@@ -341,9 +341,10 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
         else if (usageKl) { usageQty = usageKl; usageUnit = 'kL'; }
 
         if (total || usageQty) {
+          const rawName = fileList[i]?.name || `File ${i + 1}`;
           bills.push({
             fileIdx: i,
-            fileName: fileList[i]?.name || `File ${i + 1}`,
+            fileName: rawName,
             periodStart: parseDateField(ps),
             periodEnd: parseDateField(pe),
             total,
@@ -781,8 +782,23 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
     // Create bill records — one per file if we have per-file data, otherwise single bill
     if (docTypes.includes('BILL')) {
       if (perFileBills.length > 0) {
+        // Deduplicate filenames — append period or index when names repeat
+        const fnCounts = new Map<string, number>();
+        for (const fb of perFileBills) fnCounts.set(fb.fileName, (fnCounts.get(fb.fileName) || 0) + 1);
+        const fnIdx = new Map<string, number>();
         for (const fb of perFileBills) {
           if (!fb.total && !fb.usageQty) continue;
+          let noteLabel = fb.fileName || '';
+          // If multiple files share the same name, disambiguate
+          if ((fnCounts.get(fb.fileName) || 0) > 1) {
+            const idx = (fnIdx.get(fb.fileName) || 0) + 1;
+            fnIdx.set(fb.fileName, idx);
+            if (fb.periodStart && fb.periodEnd) {
+              noteLabel = `${fb.fileName} [${fb.periodStart} to ${fb.periodEnd}]`;
+            } else {
+              noteLabel = `${fb.fileName} (#${idx})`;
+            }
+          }
           await app.saveBill({
             id: uuid(),
             serviceId: targetServiceId,
@@ -793,7 +809,7 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
             usageUnit: fb.usageUnit || null,
             usageDays: fb.usageDays ? parseInt(fb.usageDays) : null,
             lineItems: [],
-            notes: fb.fileName || '',
+            notes: noteLabel,
             createdAt: fb.docDate || today(),
           });
         }

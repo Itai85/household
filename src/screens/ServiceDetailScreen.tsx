@@ -45,6 +45,9 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
   const [forecast, setForecast] = useState<ForecastResult | null>(null);
   const [showForecast, setShowForecast] = useState(false);
 
+  // Bill comparison
+  const [compareIds, setCompareIds] = useState<[string, string] | null>(null);
+
   const load = useCallback(async () => {
     const s = app.services.find(s => s.id === serviceId);
     if (s) setSvc(s);
@@ -682,25 +685,158 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
           ═══════════════════════════════════════════════════════ */}
       {tab === 'bills' && (() => {
         const unit = USAGE_UNITS[svc.category] || '';
-        const sortedBills = [...bills].sort((a, b) => (a.periodStart || '').localeCompare(b.periodStart || ''));
+        const sortedBills = [...bills].sort((a, b) =>
+          (a.periodStart || a.createdAt || '').localeCompare(b.periodStart || b.createdAt || ''));
         const usageBills = sortedBills.filter(b => b.usageQuantity && b.usageQuantity > 0);
         const maxUsage = usageBills.length > 0 ? Math.max(...usageBills.map(b => b.usageQuantity!)) : 0;
         const maxCost = sortedBills.length > 0 ? Math.max(...sortedBills.map(b => b.totalCents)) : 0;
+
+        // Build unique labels for each bill
+        const billLabels = new Map<string, string>();
+        const nameCounts = new Map<string, number>();
+        // First pass: count occurrences of each base name
+        for (const b of sortedBills) {
+          const sourceFile = b.notes || '';
+          const cleanName = sourceFile ? sourceFile.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ') : '';
+          const base = (b.periodStart || b.periodEnd)
+            ? `${formatDate(b.periodStart)} — ${formatDate(b.periodEnd)}`
+            : cleanName || 'Bill';
+          nameCounts.set(base, (nameCounts.get(base) || 0) + 1);
+        }
+        // Second pass: assign unique labels
+        const nameIdx = new Map<string, number>();
+        for (const b of sortedBills) {
+          const sourceFile = b.notes || '';
+          const cleanName = sourceFile ? sourceFile.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ') : '';
+          const hasDates = b.periodStart || b.periodEnd;
+          const base = hasDates
+            ? `${formatDate(b.periodStart)} — ${formatDate(b.periodEnd)}`
+            : cleanName || 'Bill';
+          const count = nameCounts.get(base) || 1;
+          if (count > 1) {
+            const idx = (nameIdx.get(base) || 0) + 1;
+            nameIdx.set(base, idx);
+            billLabels.set(b.id, `${base} (#${idx})`);
+          } else {
+            billLabels.set(b.id, base);
+          }
+        }
+
+        // Helper to get short label for charts
+        const shortLabel = (b: Bill) => {
+          const d = b.periodStart || b.createdAt;
+          return d ? new Date(d).toLocaleDateString('en-AU', { month: 'short', year: '2-digit' }) : '?';
+        };
+
+        // Daily cost for comparison
+        const dailyCost = (b: Bill) => b.usageDays && b.usageDays > 0 ? b.totalCents / b.usageDays : null;
+
+        // Trend: change from previous bill
+        const trends = sortedBills.map((b, i) => {
+          if (i === 0) return null;
+          const prev = sortedBills[i - 1]!;
+          if (prev.totalCents === 0) return null;
+          return ((b.totalCents - prev.totalCents) / prev.totalCents) * 100;
+        });
+
+        // Comparison bills
+        const cmpA = compareIds ? sortedBills.find(b => b.id === compareIds[0]) : null;
+        const cmpB = compareIds ? sortedBills.find(b => b.id === compareIds[1]) : null;
 
         return (
           <div className="stack">
             <button className="btn btn--primary" onClick={() => onNavigate('add-bill', { serviceId })}>+ Add Bill</button>
 
-            {/* Usage chart (for electricity/gas/water) */}
+            {/* ── Combined Trend Chart ── */}
+            {sortedBills.length >= 2 && (
+              <div className="card">
+                <h3>📊 Payment Trend</h3>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '160px', marginTop: '12px', padding: '0 4px' }}>
+                  {sortedBills.map((b, i) => {
+                    const pct = maxCost > 0 ? (b.totalCents / maxCost) * 100 : 0;
+                    const trend = trends[i];
+                    const isUp = trend !== null && trend > 0;
+                    const isDown = trend !== null && trend < 0;
+                    return (
+                      <div key={b.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 0, position: 'relative' }}>
+                        {/* Trend indicator */}
+                        {trend !== null && (
+                          <span style={{
+                            fontSize: '0.65rem', fontWeight: 700, marginBottom: '2px',
+                            color: isUp ? '#ef4444' : isDown ? '#22c55e' : 'var(--muted)',
+                          }}>
+                            {isUp ? '▲' : isDown ? '▼' : '—'}{Math.abs(trend).toFixed(0)}%
+                          </span>
+                        )}
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text)', fontWeight: 600, marginBottom: '4px' }}>
+                          {money(b.totalCents, true)}
+                        </span>
+                        <div style={{
+                          width: '100%', maxWidth: '52px',
+                          height: `${Math.max(pct, 4)}%`,
+                          background: isUp
+                            ? 'linear-gradient(180deg, #f87171, #dc2626)'
+                            : isDown
+                              ? 'linear-gradient(180deg, #4ade80, #16a34a)'
+                              : 'linear-gradient(180deg, #f59e0b, #d97706)',
+                          borderRadius: '6px 6px 0 0',
+                          transition: 'height 0.3s',
+                          cursor: 'pointer',
+                          opacity: (compareIds && !compareIds.includes(b.id)) ? 0.4 : 1,
+                          border: compareIds?.includes(b.id) ? '2px solid var(--text)' : 'none',
+                        }}
+                        title={`Click to compare: ${billLabels.get(b.id)}`}
+                        onClick={() => {
+                          if (!compareIds) {
+                            setCompareIds([b.id, sortedBills[Math.max(0, i - 1)]?.id || b.id]);
+                          } else if (compareIds[0] === b.id) {
+                            setCompareIds(null);
+                          } else {
+                            setCompareIds([compareIds[0], b.id]);
+                          }
+                        }}
+                        />
+                        <span style={{ fontSize: '0.62rem', color: 'var(--muted)', marginTop: '4px', whiteSpace: 'nowrap' }}>
+                          {shortLabel(b)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Average line */}
+                {sortedBills.length > 0 && (() => {
+                  const avg = sortedBills.reduce((s, b) => s + b.totalCents, 0) / sortedBills.length;
+                  return (
+                    <p className="muted" style={{ textAlign: 'center', marginTop: '8px', fontSize: '0.82rem' }}>
+                      Average: <strong>{money(Math.round(avg))}</strong> per bill
+                      {sortedBills.length >= 3 && (() => {
+                        const last = sortedBills[sortedBills.length - 1]!;
+                        const first = sortedBills[0]!;
+                        const overall = first.totalCents > 0
+                          ? ((last.totalCents - first.totalCents) / first.totalCents * 100)
+                          : 0;
+                        return overall !== 0 ? (
+                          <span style={{ marginLeft: '8px', color: overall > 0 ? '#ef4444' : '#22c55e' }}>
+                            ({overall > 0 ? '+' : ''}{overall.toFixed(0)}% overall)
+                          </span>
+                        ) : null;
+                      })()}
+                    </p>
+                  );
+                })()}
+                <p className="muted" style={{ textAlign: 'center', fontSize: '0.72rem', marginTop: '4px' }}>
+                  💡 Click a bar to compare two periods
+                </p>
+              </div>
+            )}
+
+            {/* ── Usage chart (for electricity/gas/water) ── */}
             {isUsageSvc && usageBills.length >= 2 && (
               <div className="card">
                 <h3>📈 Usage History ({unit})</h3>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', height: '140px', marginTop: '12px' }}>
                   {usageBills.map(b => {
                     const pct = maxUsage > 0 ? (b.usageQuantity! / maxUsage) * 100 : 0;
-                    const periodLabel = (b.periodStart || b.createdAt)
-                      ? new Date(b.periodStart || b.createdAt).toLocaleDateString('en-AU', { month: 'short', year: '2-digit' })
-                      : '?';
                     return (
                       <div key={b.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 0 }}>
                         <span style={{ fontSize: '0.7rem', color: 'var(--text)', fontWeight: 600, marginBottom: '4px' }}>
@@ -714,7 +850,7 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
                           transition: 'height 0.3s',
                         }} />
                         <span style={{ fontSize: '0.65rem', color: 'var(--muted)', marginTop: '4px', whiteSpace: 'nowrap' }}>
-                          {periodLabel}
+                          {shortLabel(b)}
                         </span>
                       </div>
                     );
@@ -733,58 +869,144 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
               </div>
             )}
 
-            {/* Cost chart */}
-            {sortedBills.length >= 2 && (
-              <div className="card">
-                <h3>💰 Cost History</h3>
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', height: '120px', marginTop: '12px' }}>
-                  {sortedBills.map(b => {
-                    const pct = maxCost > 0 ? (b.totalCents / maxCost) * 100 : 0;
-                    const periodLabel = (b.periodStart || b.createdAt)
-                      ? new Date(b.periodStart || b.createdAt).toLocaleDateString('en-AU', { month: 'short', year: '2-digit' })
-                      : '?';
-                    return (
-                      <div key={b.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 0 }}>
-                        <span style={{ fontSize: '0.7rem', color: 'var(--text)', fontWeight: 600, marginBottom: '4px' }}>
-                          {money(b.totalCents, true)}
-                        </span>
-                        <div style={{
-                          width: '100%', maxWidth: '48px',
-                          height: `${Math.max(pct, 4)}%`,
-                          background: 'linear-gradient(180deg, #f59e0b, #d97706)',
-                          borderRadius: '4px 4px 0 0',
-                          transition: 'height 0.3s',
-                        }} />
-                        <span style={{ fontSize: '0.65rem', color: 'var(--muted)', marginTop: '4px', whiteSpace: 'nowrap' }}>
-                          {periodLabel}
-                        </span>
-                      </div>
-                    );
-                  })}
+            {/* ── Comparison Panel ── */}
+            {compareIds && cmpA && cmpB && cmpA.id !== cmpB.id && (
+              <div className="card" style={{ border: '2px solid #3b82f6', background: 'rgba(59,130,246,0.04)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <h3 style={{ margin: 0 }}>⚖️ Comparison</h3>
+                  <button className="btn btn--small" onClick={() => setCompareIds(null)}>✕ Close</button>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid var(--border)' }}>
+                        <th style={{ textAlign: 'left', padding: '6px 8px' }}></th>
+                        <th style={{ textAlign: 'right', padding: '6px 8px' }}>{billLabels.get(cmpA.id)}</th>
+                        <th style={{ textAlign: 'right', padding: '6px 8px' }}>{billLabels.get(cmpB.id)}</th>
+                        <th style={{ textAlign: 'right', padding: '6px 8px' }}>Change</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* Total */}
+                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '6px 8px', fontWeight: 600 }}>💰 Total</td>
+                        <td style={{ textAlign: 'right', padding: '6px 8px' }}>{money(cmpA.totalCents)}</td>
+                        <td style={{ textAlign: 'right', padding: '6px 8px' }}>{money(cmpB.totalCents)}</td>
+                        <td style={{ textAlign: 'right', padding: '6px 8px' }}>
+                          {cmpA.totalCents > 0 ? (() => {
+                            const diff = cmpB.totalCents - cmpA.totalCents;
+                            const pct = (diff / cmpA.totalCents * 100).toFixed(1);
+                            return (
+                              <span style={{ color: diff > 0 ? '#ef4444' : diff < 0 ? '#22c55e' : 'var(--muted)', fontWeight: 600 }}>
+                                {diff > 0 ? '+' : ''}{money(diff)} ({diff > 0 ? '+' : ''}{pct}%)
+                              </span>
+                            );
+                          })() : '—'}
+                        </td>
+                      </tr>
+                      {/* Usage */}
+                      {(cmpA.usageQuantity || cmpB.usageQuantity) && (
+                        <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '6px 8px', fontWeight: 600 }}>⚡ Usage</td>
+                          <td style={{ textAlign: 'right', padding: '6px 8px' }}>
+                            {cmpA.usageQuantity ? `${cmpA.usageQuantity.toLocaleString()} ${cmpA.usageUnit || unit}` : '—'}
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '6px 8px' }}>
+                            {cmpB.usageQuantity ? `${cmpB.usageQuantity.toLocaleString()} ${cmpB.usageUnit || unit}` : '—'}
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '6px 8px' }}>
+                            {cmpA.usageQuantity && cmpB.usageQuantity ? (() => {
+                              const diff = cmpB.usageQuantity! - cmpA.usageQuantity!;
+                              const pct = (diff / cmpA.usageQuantity! * 100).toFixed(1);
+                              return (
+                                <span style={{ color: diff > 0 ? '#ef4444' : diff < 0 ? '#22c55e' : 'var(--muted)', fontWeight: 600 }}>
+                                  {diff > 0 ? '+' : ''}{diff.toLocaleString()} ({diff > 0 ? '+' : ''}{pct}%)
+                                </span>
+                              );
+                            })() : '—'}
+                          </td>
+                        </tr>
+                      )}
+                      {/* Days */}
+                      {(cmpA.usageDays || cmpB.usageDays) && (
+                        <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '6px 8px', fontWeight: 600 }}>📅 Days</td>
+                          <td style={{ textAlign: 'right', padding: '6px 8px' }}>{cmpA.usageDays || '—'}</td>
+                          <td style={{ textAlign: 'right', padding: '6px 8px' }}>{cmpB.usageDays || '—'}</td>
+                          <td style={{ textAlign: 'right', padding: '6px 8px' }}>
+                            {cmpA.usageDays && cmpB.usageDays
+                              ? `${cmpB.usageDays - cmpA.usageDays > 0 ? '+' : ''}${cmpB.usageDays - cmpA.usageDays}`
+                              : '—'}
+                          </td>
+                        </tr>
+                      )}
+                      {/* Daily cost */}
+                      {(dailyCost(cmpA) || dailyCost(cmpB)) && (
+                        <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '6px 8px', fontWeight: 600 }}>📊 Daily Cost</td>
+                          <td style={{ textAlign: 'right', padding: '6px 8px' }}>{dailyCost(cmpA) ? money(Math.round(dailyCost(cmpA)!)) : '—'}</td>
+                          <td style={{ textAlign: 'right', padding: '6px 8px' }}>{dailyCost(cmpB) ? money(Math.round(dailyCost(cmpB)!)) : '—'}</td>
+                          <td style={{ textAlign: 'right', padding: '6px 8px' }}>
+                            {dailyCost(cmpA) && dailyCost(cmpB) ? (() => {
+                              const diff = dailyCost(cmpB)! - dailyCost(cmpA)!;
+                              const pct = (diff / dailyCost(cmpA)! * 100).toFixed(1);
+                              return (
+                                <span style={{ color: diff > 0 ? '#ef4444' : diff < 0 ? '#22c55e' : 'var(--muted)', fontWeight: 600 }}>
+                                  {diff > 0 ? '+' : ''}{money(Math.round(diff))} ({diff > 0 ? '+' : ''}{pct}%)
+                                </span>
+                              );
+                            })() : '—'}
+                          </td>
+                        </tr>
+                      )}
+                      {/* Daily usage */}
+                      {isUsageSvc && (cmpA.usageQuantity || cmpB.usageQuantity) && (cmpA.usageDays || cmpB.usageDays) && (
+                        <tr>
+                          <td style={{ padding: '6px 8px', fontWeight: 600 }}>⚡ Daily Usage</td>
+                          <td style={{ textAlign: 'right', padding: '6px 8px' }}>
+                            {cmpA.usageQuantity && cmpA.usageDays ? `${(cmpA.usageQuantity / cmpA.usageDays).toFixed(1)} ${unit}/day` : '—'}
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '6px 8px' }}>
+                            {cmpB.usageQuantity && cmpB.usageDays ? `${(cmpB.usageQuantity / cmpB.usageDays).toFixed(1)} ${unit}/day` : '—'}
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '6px 8px' }}>
+                            {cmpA.usageQuantity && cmpA.usageDays && cmpB.usageQuantity && cmpB.usageDays ? (() => {
+                              const dA = cmpA.usageQuantity! / cmpA.usageDays!;
+                              const dB = cmpB.usageQuantity! / cmpB.usageDays!;
+                              const diff = dB - dA;
+                              const pct = (diff / dA * 100).toFixed(1);
+                              return (
+                                <span style={{ color: diff > 0 ? '#ef4444' : diff < 0 ? '#22c55e' : 'var(--muted)', fontWeight: 600 }}>
+                                  {diff > 0 ? '+' : ''}{diff.toFixed(1)} ({diff > 0 ? '+' : ''}{pct}%)
+                                </span>
+                              );
+                            })() : '—'}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
 
-            {/* Bill list */}
+            {/* ── Bill list ── */}
             {bills.length === 0 ? (
               <div className="empty"><p>No bills yet. Import a document or add a bill manually.</p></div>
             ) : (
               sortedBills.reverse().map((b, idx) => {
-                const hasDates = b.periodStart || b.periodEnd;
-                // Source filename: stored in notes (new bills), or from doc title
+                const label = billLabels.get(b.id) || `Bill #${idx + 1}`;
                 const sourceFile = b.notes || '';
-                const cleanName = sourceFile
-                  ? sourceFile.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ')
-                  : '';
-
-                const billLabel = hasDates
-                  ? `${formatDate(b.periodStart)} — ${formatDate(b.periodEnd)}`
-                  : cleanName || `Bill #${sortedBills.length - idx}`;
+                const hasDates = b.periodStart || b.periodEnd;
+                const isSelected = compareIds?.includes(b.id);
                 return (
-                <div key={b.id} className="card bill-card">
+                <div key={b.id} className="card bill-card" style={{
+                  border: isSelected ? '2px solid #3b82f6' : undefined,
+                  background: isSelected ? 'rgba(59,130,246,0.04)' : undefined,
+                }}>
                   <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <span style={{ fontWeight: 600 }}>{billLabel}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ fontWeight: 600 }}>{label}</span>
                       {b.usageDays && <span className="muted" style={{ marginLeft: '8px' }}>({b.usageDays} days)</span>}
                     </div>
                     <span className="money" style={{ fontSize: '1.1rem' }}>{money(b.totalCents)}</span>
@@ -804,11 +1026,28 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
                       )}
                     </div>
                   )}
-                  <button
-                    className="btn btn--small btn--danger"
-                    style={{ marginTop: '6px', alignSelf: 'flex-start' }}
-                    onClick={() => handleDeleteBill(b.id, b.periodStart)}
-                  >Delete</button>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                    <button
+                      className="btn btn--small"
+                      onClick={() => {
+                        if (!compareIds) {
+                          // Start comparison: pick this + the previous bill
+                          const prevBill = sortedBills[Math.max(0, sortedBills.length - idx - 2)];
+                          if (prevBill && prevBill.id !== b.id) {
+                            setCompareIds([prevBill.id, b.id]);
+                          }
+                        } else if (compareIds.includes(b.id)) {
+                          setCompareIds(null);
+                        } else {
+                          setCompareIds([compareIds[0], b.id]);
+                        }
+                      }}
+                    >{isSelected ? '✓ Comparing' : '⚖️ Compare'}</button>
+                    <button
+                      className="btn btn--small btn--danger"
+                      onClick={() => handleDeleteBill(b.id, b.periodStart)}
+                    >Delete</button>
+                  </div>
                 </div>
                 );
               })

@@ -5,7 +5,8 @@
       "name": "household",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["vite", "--port", "5220"],
-      "port": 5220
+      "port": 5220,
+      "cwd": "C:\\Anthropic\\Home Management\\household"
     }
   ]
 }
