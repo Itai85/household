@@ -222,8 +222,8 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
           </div>
         )}
 
-        {/* Suggestions */}
-        {messages.length === 0 && !showCompare && (
+        {/* Suggestions — always visible (not just when no messages) */}
+        {!showCompare && !loading && suggestions.length > 0 && (
           <div className="ai-chat-suggestions">
             {suggestionsLoading ? (
               <span className="muted" style={{ fontSize: '0.75rem' }}>Loading suggestions...</span>
@@ -242,7 +242,6 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
           <button
             className="ai-chat-compare-btn"
             onClick={() => setShowCompare(true)}
-            disabled={bills.length === 0}
           >
             📊 Compare new plan against my usage
           </button>
@@ -257,8 +256,8 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') sendMessage(input); }}
-            placeholder="Ask about your bills..."
-            disabled={loading || bills.length === 0}
+            placeholder="Ask about your service..."
+            disabled={loading}
             style={{ flex: 1, fontSize: '0.85rem' }}
           />
           <button

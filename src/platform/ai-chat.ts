@@ -211,7 +211,7 @@ export async function askQuestion(
 
   const systemPrompt = buildSystemPrompt(svc, bills);
   const isProxy = (aiConfig.providerId as string) === 'server-proxy';
-  const resolvedModel = isProxy ? 'smart' : pickAutoModel(aiConfig, true);
+  const resolvedModel = isProxy ? 'fast' : pickAutoModel(aiConfig, false);
   const config: AiConfig = { ...aiConfig, modelId: resolvedModel };
 
   // Build conversation context (last 6 messages for context)
@@ -298,7 +298,7 @@ export async function comparePlan(
 
   const systemPrompt = buildSystemPrompt(svc, bills);
   const isProxy = (aiConfig.providerId as string) === 'server-proxy';
-  const resolvedModel = isProxy ? 'smart' : pickAutoModel(aiConfig, true);
+  const resolvedModel = isProxy ? 'fast' : pickAutoModel(aiConfig, false);
   const config: AiConfig = { ...aiConfig, modelId: resolvedModel };
 
   const providerLabel = isProxy ? 'Server AI' : (PROVIDERS[config.providerId]?.label || config.providerId);
