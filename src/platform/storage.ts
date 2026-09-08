@@ -63,6 +63,12 @@ function clean<T extends Record<string, any>>(obj: T): T {
   return result;
 }
 
+/** Strip null bytes that PostgreSQL text columns cannot store */
+function sanitizeText(s: string): string {
+  // Remove null bytes — PostgreSQL text columns reject \u0000
+  return s.split(String.fromCharCode(0)).join('');
+}
+
 /** Convert camelCase JS object to snake_case DB row */
 function toDbRow(obj: Record<string, any>): Record<string, any> {
   const row: Record<string, any> = {};
@@ -70,9 +76,11 @@ function toDbRow(obj: Record<string, any>): Record<string, any> {
     const snakeKey = k.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
     // Serialize complex fields as JSON
     if (v !== undefined && v !== null && typeof v === 'object' && !Array.isArray(v)) {
-      row[snakeKey] = JSON.stringify(v);
+      row[snakeKey] = sanitizeText(JSON.stringify(v));
     } else if (Array.isArray(v)) {
-      row[snakeKey] = JSON.stringify(v);
+      row[snakeKey] = sanitizeText(JSON.stringify(v));
+    } else if (typeof v === 'string') {
+      row[snakeKey] = sanitizeText(v);
     } else {
       row[snakeKey] = v;
     }

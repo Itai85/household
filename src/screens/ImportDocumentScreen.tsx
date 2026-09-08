@@ -108,6 +108,7 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
   const [pastedText, setPastedText] = useState('');
   const [sourceMode, setSourceMode] = useState<'file' | 'text'>('file');
   const [saving, setSaving] = useState(false);
+  const [pendingServiceId] = useState(() => uuid()); // stable ID for retries
 
   // ─── Process uploaded file ────────────────────────────────
 
@@ -514,7 +515,7 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
     // Create new service if needed
     if (createNewService || !targetServiceId) {
       const newService: Service = {
-        id: uuid(),
+        id: pendingServiceId,
         nickname: nickname || providerName || 'New Service',
         category,
         provider: providerName,
