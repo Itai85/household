@@ -4,7 +4,7 @@ import { useApp } from '../store/AppContext';
 import { parseDocument } from '../platform/document-parser';
 import { extractText } from '../platform/document-reader';
 import { llmParse, type LlmParseResult } from '../platform/llm-parser';
-import { getAiConfig } from '../platform/storage';
+import { getEffectiveAiConfig } from '../platform/storage';
 import type { Service, Bill, Document as Doc, TariffEntry } from '../types';
 import { money, humanise, formatDate, monthlyAmount, FREQUENCY_LABELS, DOC_TYPE_LABELS, today, USAGE_CATEGORIES, USAGE_UNITS } from '../types';
 import { forecastNextBill, type ForecastResult } from '../platform/forecast';
@@ -59,7 +59,7 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
 
     try {
       const allDocs = await app.getDocs(serviceId);
-      const aiConfig = getAiConfig();
+      const aiConfig = getEffectiveAiConfig();
       const allEntries: TariffEntry[] = [];
       let summary = '';
 

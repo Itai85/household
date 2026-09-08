@@ -4,7 +4,7 @@ import { useApp } from '../store/AppContext';
 import { extractText, type OcrProgress } from '../platform/document-reader';
 import { parseDocument } from '../platform/document-parser';
 import { llmParse, type LlmParseResult, type TokenUsage } from '../platform/llm-parser';
-import { getAiConfig } from '../platform/storage';
+import { getEffectiveAiConfig } from '../platform/storage';
 import { PROVIDERS } from '../platform/ai-providers';
 import type { Document as Doc, DocumentType, DocInsight, Service, ServiceCategory, TariffEntry, BillingFrequency } from '../types';
 import { DOC_TYPE_LABELS, FREQUENCY_LABELS, humanise, emptyUserEdits, today, USAGE_CATEGORIES, USAGE_UNITS, formatDate } from '../types';
@@ -145,7 +145,7 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
       const knownDocTypes = regexResult.docTypes.length > 0 ? regexResult.docTypes : undefined;
 
       // Second pass: AI analysis with context
-      const aiConfig = getAiConfig();
+      const aiConfig = getEffectiveAiConfig();
       const providerLabel = aiConfig ? (PROVIDERS[aiConfig.providerId]?.label || 'AI') : '';
 
       for (let i = 0; i < fileList.length; i++) {
@@ -347,7 +347,7 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
       const knownDocTypes = regexResult.docTypes.length > 0 ? regexResult.docTypes : undefined;
 
       // Try LLM parser with context, fall back to regex
-      const aiConfig = getAiConfig();
+      const aiConfig = getEffectiveAiConfig();
       let result;
       let usedLlm = false;
       if (aiConfig?.apiKey) {

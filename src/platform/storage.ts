@@ -369,7 +369,40 @@ export function setAiConfig(config: AiConfig | null): void {
 
 export function hasAiConfig(): boolean {
   const config = getAiConfig();
-  return !!(config && config.apiKey);
+  if (config && config.apiKey) return true;
+  // Also true if server proxy is configured (sentinel in localStorage)
+  try {
+    return localStorage.getItem('household_ai_proxy') === 'true';
+  } catch { return false; }
+}
+
+/** Mark that server-side AI proxy is available */
+export function setProxyAvailable(available: boolean): void {
+  try {
+    if (available) {
+      localStorage.setItem('household_ai_proxy', 'true');
+    } else {
+      localStorage.removeItem('household_ai_proxy');
+    }
+  } catch {}
+}
+
+/** Check if using server proxy (vs client-side API key) */
+export function isUsingProxy(): boolean {
+  try {
+    return localStorage.getItem('household_ai_proxy') === 'true';
+  } catch { return false; }
+}
+
+/** Get AI config — returns proxy sentinel if server proxy is available and no local config */
+export function getEffectiveAiConfig(): AiConfig | null {
+  const local = getAiConfig();
+  if (local && local.apiKey) return local;
+  // Fall back to server proxy
+  if (isUsingProxy()) {
+    return { providerId: 'server-proxy' as any, apiKey: 'proxy', modelId: 'auto' };
+  }
+  return local;
 }
 
 // Legacy getters

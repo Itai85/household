@@ -200,7 +200,9 @@ export async function llmParse(
   const category = options?.knownCategory || null;
   const isComplex = isComplexDoc(docTypes, category);
 
-  const resolvedModel = pickAutoModel(aiConfig, isComplex);
+  // For server proxy, pass tier instead of a resolved model
+  const isProxy = (aiConfig.providerId as string) === 'server-proxy';
+  const resolvedModel = isProxy ? (isComplex ? 'smart' : 'fast') : pickAutoModel(aiConfig, isComplex);
   const config: AiConfig = { ...aiConfig, modelId: resolvedModel };
 
   const systemPrompt = pickPrompt(docTypes, category);
@@ -216,8 +218,8 @@ export async function llmParse(
 
   const userMessage = contextHint + `Parse this document:\n\n${preprocessed.cleanedText}`;
 
-  const providerLabel = PROVIDERS[config.providerId]?.label || config.providerId;
-  const modelShort = resolvedModel.replace(/^(claude-|gpt-|gemini-)/, '').split('-').slice(0, 2).join(' ');
+  const providerLabel = isProxy ? 'Server AI' : (PROVIDERS[config.providerId]?.label || config.providerId);
+  const modelShort = isProxy ? (isComplex ? 'smart' : 'fast') : resolvedModel.replace(/^(claude-|gpt-|gemini-)/, '').split('-').slice(0, 2).join(' ');
   const estimatedInputTokens = estimateTokens(systemPrompt + userMessage);
   onStatus?.(`Sending to ${providerLabel} (${modelShort}, ~${estimatedInputTokens} tokens)...`);
 

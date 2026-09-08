@@ -249,9 +249,89 @@ async function callGemini(config: AiConfig, req: AiRequest): Promise<AiResponse>
   };
 }
 
+// ─── Server-side proxy (Supabase Edge Function) ────────────
+
+/** Call the server-side AI proxy — no client API key needed */
+async function callProxy(req: AiRequest, tier: 'fast' | 'smart'): Promise<AiResponse> {
+  const { getSupabase, isSupabaseConfigured } = await import('./supabase');
+  if (!isSupabaseConfigured) throw new Error('Supabase not configured');
+
+  const sb = getSupabase();
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const res = await sb.functions.invoke('ai-proxy', {
+    body: {
+      systemPrompt: req.systemPrompt,
+      userMessage: req.userMessage,
+      maxTokens: req.maxTokens,
+      tier,
+    },
+  });
+
+  if (res.error) throw new Error(res.error.message || 'Edge Function error');
+  const data = res.data as AiResponse;
+  if (!data?.content) throw new Error('No content from AI proxy');
+  return data;
+}
+
+/** Check if the server-side AI proxy is available (cached per session) */
+let _proxyAvailable: boolean | null = null;
+let _proxyCheckPromise: Promise<boolean> | null = null;
+
+export async function isProxyAvailable(): Promise<boolean> {
+  if (_proxyAvailable !== null) return _proxyAvailable;
+  if (_proxyCheckPromise) return _proxyCheckPromise;
+
+  _proxyCheckPromise = (async () => {
+    try {
+      const { getSupabase, isSupabaseConfigured } = await import('./supabase');
+      if (!isSupabaseConfigured) return false;
+
+      const sb = getSupabase();
+      const { data: { session } } = await sb.auth.getSession();
+      if (!session) return false;
+
+      // Quick probe — send a minimal request to check if the function exists and has a key
+      const res = await sb.functions.invoke('ai-proxy', {
+        body: {
+          systemPrompt: 'test',
+          userMessage: 'reply with OK',
+          maxTokens: 5,
+          tier: 'fast',
+        },
+      });
+
+      // If we get a response (even an error from the AI), the proxy works
+      // 503 means the function exists but AI_API_KEY isn't set
+      _proxyAvailable = !res.error && !!res.data?.content;
+      return _proxyAvailable;
+    } catch {
+      _proxyAvailable = false;
+      return false;
+    } finally {
+      _proxyCheckPromise = null;
+    }
+  })();
+
+  return _proxyCheckPromise;
+}
+
+/** Reset the proxy cache (e.g. after login/logout) */
+export function resetProxyCache(): void {
+  _proxyAvailable = null;
+  _proxyCheckPromise = null;
+}
+
 // ─── Unified call function ───────────────────────────────────
 
 export async function callAi(config: AiConfig, req: AiRequest): Promise<AiResponse> {
+  // If config is the server proxy sentinel, use Edge Function
+  if (config.providerId === 'server-proxy' as ProviderId) {
+    const tier = config.modelId === 'smart' ? 'smart' : 'fast';
+    return callProxy(req, tier);
+  }
+
   switch (config.providerId) {
     case 'anthropic':
       return callAnthropic(config, req);

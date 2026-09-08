@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { eraseAll, getAiConfig, setAiConfig, getTokenUsage, resetTokenUsage } from '../platform/storage';
-import { PROVIDERS, COMPATIBLE_PRESETS, type ProviderId, type AiConfig } from '../platform/ai-providers';
+import { useState, useEffect } from 'react';
+import { eraseAll, getAiConfig, setAiConfig, getTokenUsage, resetTokenUsage, isUsingProxy, setProxyAvailable } from '../platform/storage';
+import { PROVIDERS, COMPATIBLE_PRESETS, isProxyAvailable, type ProviderId, type AiConfig } from '../platform/ai-providers';
 import { useAuth } from '../store/AuthContext';
 
 interface Props {
@@ -11,7 +11,22 @@ export function SettingsScreen({ onBack }: Props) {
   const { user, isCloudMode, signOut, deleteAccount } = useAuth();
   const [showConfirm, setShowConfirm] = useState(false);
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [proxyStatus, setProxyStatus] = useState<'checking' | 'available' | 'unavailable'>(
+    isUsingProxy() ? 'available' : 'checking'
+  );
   const existing = getAiConfig();
+
+  // Check server-side AI proxy availability
+  useEffect(() => {
+    if (isCloudMode) {
+      isProxyAvailable().then(ok => {
+        setProxyStatus(ok ? 'available' : 'unavailable');
+        setProxyAvailable(ok);
+      });
+    } else {
+      setProxyStatus('unavailable');
+    }
+  }, [isCloudMode]);
   const [providerId, setProviderId] = useState<ProviderId>(existing?.providerId || 'anthropic');
   const [apiKey, setApiKey] = useState(existing?.apiKey || '');
   const [modelId, setModelId] = useState(existing?.modelId || 'auto');
@@ -80,9 +95,48 @@ export function SettingsScreen({ onBack }: Props) {
       {/* ─── AI Provider ──────────────────────────────────── */}
       <div className="card">
         <h3>🤖 AI Provider</h3>
+
+        {/* Server-side AI proxy status */}
+        {isCloudMode && proxyStatus === 'available' && !existing?.apiKey && (
+          <div style={{
+            padding: '12px 16px',
+            borderRadius: 'var(--radius-sm)',
+            background: 'color-mix(in srgb, var(--ok) 8%, var(--surface))',
+            border: '1px solid color-mix(in srgb, var(--ok) 25%, transparent)',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+          }}>
+            <span style={{ fontSize: '1.2rem' }}>✨</span>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                <span style={{ color: 'var(--ok)' }}>● AI is ready</span> — server-side provider configured
+              </div>
+              <div className="muted" style={{ fontSize: '0.78rem', marginTop: '2px' }}>
+                Smart document parsing works automatically. No API key needed on your end.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isCloudMode && proxyStatus === 'available' && existing?.apiKey && (
+          <div style={{
+            padding: '10px 14px',
+            borderRadius: 'var(--radius-sm)',
+            background: 'var(--surface-2)',
+            marginBottom: '12px',
+            fontSize: '0.82rem',
+            color: 'var(--muted)',
+          }}>
+            💡 A server-side AI provider is available. Your personal API key below takes priority — remove it to use the built-in AI instead.
+          </div>
+        )}
+
         <p className="muted" style={{ marginBottom: '12px' }}>
-          Connect your AI to enable smart document parsing. The AI understands your bills,
-          extracts tariffs, and tracks changes — the site just orchestrates and stores the results.
+          {proxyStatus === 'available' && !existing?.apiKey
+            ? 'AI is already connected via the server. You can optionally override it with your own API key below.'
+            : 'Connect your AI to enable smart document parsing. The AI understands your bills, extracts tariffs, and tracks changes — the site just orchestrates and stores the results.'}
         </p>
 
         {/* Provider selector */}
