@@ -1,19 +1,25 @@
 /**
  * BillAiChat — floating AI chat panel for asking questions about bills.
  *
- * Works with any service category. Shows:
- * - Welcome message
- * - Suggested questions (2 static + up to 3 dynamic from AI)
- * - Free-text input
- * - Conversation history
+ * Improvements:
+ * #3 — Structured compare form with fields for plan details
+ * #4 — Chat history persisted to localStorage per serviceId
+ * #5 — Clear chat button
+ * #6 — Better loading states with descriptive messages
+ * #7 — Rich markdown rendering (tables, lists, headings, bold, code)
+ * #9 — Follow-up suggestions after each AI answer
  */
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { Service, Bill } from '../types';
 import {
   askQuestion,
   generateSuggestions,
   comparePlan,
   buildUsageProfile,
+  loadChatHistory,
+  saveChatHistory,
+  clearChatHistory,
+  extractFollowUps,
   type ChatMessage,
 } from '../platform/ai-chat';
 import { money, USAGE_UNITS, USAGE_CATEGORIES } from '../types';
@@ -29,16 +35,47 @@ let _msgId = 0;
 const nextId = () => `msg_${++_msgId}_${Date.now()}`;
 
 export function BillAiChat({ service, bills, open, onClose }: Props) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // #4: Load persisted chat history
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadChatHistory(service.id));
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [showCompare, setShowCompare] = useState(false);
-  const [compareInput, setCompareInput] = useState('');
+  // #3: Structured compare form state
+  const [compareForm, setCompareForm] = useState({
+    planName: '',
+    provider: '',
+    supplyCharge: '',
+    peakRate: '',
+    shoulderRate: '',
+    offPeakRate: '',
+    controlledLoad: '',
+    monthlyPrice: '',
+    discount: '',
+    extras: '',
+  });
+  // #9: Follow-up suggestions from the last AI response
+  const [followUps, setFollowUps] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const isUsage = USAGE_CATEGORIES.has(service.category);
+
+  // #4: Persist messages whenever they change
+  useEffect(() => {
+    if (messages.length > 0) {
+      saveChatHistory(service.id, messages);
+    }
+  }, [messages, service.id]);
+
+  // #4: Reload history when service changes
+  useEffect(() => {
+    setMessages(loadChatHistory(service.id));
+    setSuggestions([]);
+    setFollowUps([]);
+  }, [service.id]);
 
   // Load dynamic suggestions when opened
   useEffect(() => {
@@ -62,6 +99,15 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
     if (open) setTimeout(() => inputRef.current?.focus(), 100);
   }, [open]);
 
+  // #9: Load follow-ups from last assistant message
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    if (last?.role === 'assistant' && last.followUps && last.followUps.length > 0) {
+      setFollowUps(last.followUps);
+    }
+  }, [messages]);
+
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || loading) return;
 
@@ -70,11 +116,16 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
     setInput('');
     setLoading(true);
     setStatus('');
+    setFollowUps([]);
 
     try {
-      const { answer, costUSD } = await askQuestion(service, bills, text, messages, setStatus);
-      const assistantMsg: ChatMessage = { id: nextId(), role: 'assistant', text: answer, timestamp: Date.now() };
+      const { answer, costUSD, followUps: newFollowUps } = await askQuestion(service, bills, text, messages, setStatus);
+      const assistantMsg: ChatMessage = {
+        id: nextId(), role: 'assistant', text: answer,
+        timestamp: Date.now(), followUps: newFollowUps,
+      };
       setMessages(prev => [...prev, assistantMsg]);
+      setFollowUps(newFollowUps);
       setStatus(`~$${costUSD.toFixed(4)}`);
     } catch (err) {
       const errorMsg: ChatMessage = {
@@ -87,23 +138,46 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
     }
   }, [loading, service, bills, messages]);
 
+  // #3: Build compare text from structured form
+  const buildCompareText = useCallback(() => {
+    const parts: string[] = [];
+    if (compareForm.provider) parts.push(`Provider: ${compareForm.provider}`);
+    if (compareForm.planName) parts.push(`Plan: ${compareForm.planName}`);
+    if (compareForm.supplyCharge) parts.push(`Supply charge: ${compareForm.supplyCharge}`);
+    if (compareForm.peakRate) parts.push(`Peak rate: ${compareForm.peakRate}`);
+    if (compareForm.shoulderRate) parts.push(`Shoulder rate: ${compareForm.shoulderRate}`);
+    if (compareForm.offPeakRate) parts.push(`Off-peak rate: ${compareForm.offPeakRate}`);
+    if (compareForm.controlledLoad) parts.push(`Controlled load: ${compareForm.controlledLoad}`);
+    if (compareForm.monthlyPrice) parts.push(`Monthly price: ${compareForm.monthlyPrice}`);
+    if (compareForm.discount) parts.push(`Discount: ${compareForm.discount}`);
+    if (compareForm.extras) parts.push(`Notes: ${compareForm.extras}`);
+    return parts.join('\n');
+  }, [compareForm]);
+
   const handleCompare = useCallback(async () => {
-    if (!compareInput.trim() || loading) return;
+    const text = buildCompareText();
+    if (!text.trim() || loading) return;
 
     const userMsg: ChatMessage = {
       id: nextId(), role: 'user',
-      text: `🔄 Compare plan:\n${compareInput.trim()}`, timestamp: Date.now(),
+      text: `🔄 Compare plan:\n${text}`, timestamp: Date.now(),
     };
     setMessages(prev => [...prev, userMsg]);
-    setCompareInput('');
+    setCompareForm({ planName: '', provider: '', supplyCharge: '', peakRate: '', shoulderRate: '', offPeakRate: '', controlledLoad: '', monthlyPrice: '', discount: '', extras: '' });
     setShowCompare(false);
     setLoading(true);
     setStatus('');
+    setFollowUps([]);
 
     try {
-      const { analysis, costUSD } = await comparePlan(service, bills, compareInput, setStatus);
-      const assistantMsg: ChatMessage = { id: nextId(), role: 'assistant', text: analysis, timestamp: Date.now() };
+      const { analysis, costUSD } = await comparePlan(service, bills, text, setStatus);
+      const { cleanText, followUps: compFollowUps } = extractFollowUps(analysis);
+      const assistantMsg: ChatMessage = {
+        id: nextId(), role: 'assistant', text: cleanText,
+        timestamp: Date.now(), followUps: compFollowUps,
+      };
       setMessages(prev => [...prev, assistantMsg]);
+      setFollowUps(compFollowUps);
       setStatus(`~$${costUSD.toFixed(4)}`);
     } catch (err) {
       const errorMsg: ChatMessage = {
@@ -114,12 +188,24 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [loading, compareInput, service, bills]);
+  }, [loading, buildCompareText, service, bills]);
+
+  // #5: Clear chat
+  const handleClear = useCallback(() => {
+    clearChatHistory(service.id);
+    setMessages([]);
+    setFollowUps([]);
+    setStatus('');
+  }, [service.id]);
+
+  // Check if compare form has at least one filled field
+  const compareHasData = useMemo(() => {
+    return Object.values(compareForm).some(v => v.trim() !== '');
+  }, [compareForm]);
 
   if (!open) return null;
 
   const unit = USAGE_UNITS[service.category] || '';
-  const isUsage = USAGE_CATEGORIES.has(service.category);
   const profile = buildUsageProfile(service, bills);
 
   return (
@@ -130,7 +216,13 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
           <span className="ai-chat-icon">✨</span>
           <span className="ai-chat-title">Ask AI</span>
         </div>
-        <button className="ai-chat-close" onClick={onClose} title="Close">✕</button>
+        <div className="ai-chat-header__right">
+          {/* #5: Clear button */}
+          {messages.length > 0 && (
+            <button className="ai-chat-clear" onClick={handleClear} title="Clear chat">🗑</button>
+          )}
+          <button className="ai-chat-close" onClick={onClose} title="Close">✕</button>
+        </div>
       </div>
 
       {/* Messages area */}
@@ -172,11 +264,13 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
         {messages.map(msg => (
           <div key={msg.id} className={`ai-chat-bubble ai-chat-bubble--${msg.role}`}>
             {msg.role === 'assistant' && <span className="ai-chat-avatar">✨</span>}
-            <div className="ai-chat-bubble__text">{formatMessageText(msg.text)}</div>
+            <div className="ai-chat-bubble__text">
+              <MarkdownContent text={msg.text} />
+            </div>
           </div>
         ))}
 
-        {/* Loading indicator */}
+        {/* Loading indicator — #6: Better status */}
         {loading && (
           <div className="ai-chat-bubble ai-chat-bubble--assistant">
             <span className="ai-chat-avatar">✨</span>
@@ -188,9 +282,9 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
         )}
       </div>
 
-      {/* Bottom area — suggestions, compare button, input */}
+      {/* Bottom area — suggestions, compare, follow-ups, input */}
       <div className="ai-chat-bottom">
-        {/* Plan compare panel */}
+        {/* Plan compare panel — #3: Structured form */}
         {showCompare && (
           <div className="ai-chat-compare">
             <div className="ai-chat-compare__header">
@@ -198,32 +292,68 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
               <button className="ai-chat-close" onClick={() => setShowCompare(false)} style={{ fontSize: '0.8rem' }}>✕</button>
             </div>
             <p className="muted" style={{ fontSize: '0.78rem', margin: '4px 0 8px' }}>
-              Paste the plan details — rates, supply charge, discounts, plan name. The AI will calculate your actual cost on both plans.
+              Enter the new plan details. AI will calculate your actual cost on both plans.
             </p>
-            <textarea
-              className="input"
-              value={compareInput}
-              onChange={e => setCompareInput(e.target.value)}
-              placeholder={isUsage
-                ? `e.g. Plan: ValueSaver\nSupply: 90c/day\nPeak: 55c/kWh\nOff-peak: 20c/kWh\n10% pay-on-time discount`
-                : `e.g. Plan: Basic 50\nMonthly: $59/month\nSpeed: 50/20 Mbps\nNo lock-in`
-              }
-              rows={4}
-              style={{ fontSize: '0.82rem', resize: 'vertical', width: '100%', boxSizing: 'border-box' }}
-            />
+
+            <div className="ai-chat-compare__form">
+              <div className="ai-chat-compare__row">
+                <input className="input input--sm" placeholder="Provider" value={compareForm.provider}
+                  onChange={e => setCompareForm(f => ({ ...f, provider: e.target.value }))} />
+                <input className="input input--sm" placeholder="Plan name" value={compareForm.planName}
+                  onChange={e => setCompareForm(f => ({ ...f, planName: e.target.value }))} />
+              </div>
+              {isUsage ? (
+                <>
+                  <div className="ai-chat-compare__row">
+                    <input className="input input--sm" placeholder="Supply charge (c/day)" value={compareForm.supplyCharge}
+                      onChange={e => setCompareForm(f => ({ ...f, supplyCharge: e.target.value }))} />
+                    <input className="input input--sm" placeholder="Peak rate (c/kWh)" value={compareForm.peakRate}
+                      onChange={e => setCompareForm(f => ({ ...f, peakRate: e.target.value }))} />
+                  </div>
+                  <div className="ai-chat-compare__row">
+                    <input className="input input--sm" placeholder="Shoulder rate" value={compareForm.shoulderRate}
+                      onChange={e => setCompareForm(f => ({ ...f, shoulderRate: e.target.value }))} />
+                    <input className="input input--sm" placeholder="Off-peak rate" value={compareForm.offPeakRate}
+                      onChange={e => setCompareForm(f => ({ ...f, offPeakRate: e.target.value }))} />
+                  </div>
+                  <input className="input input--sm" placeholder="Controlled load / other rate" value={compareForm.controlledLoad}
+                    onChange={e => setCompareForm(f => ({ ...f, controlledLoad: e.target.value }))} style={{ width: '100%' }} />
+                </>
+              ) : (
+                <input className="input input--sm" placeholder="Monthly price" value={compareForm.monthlyPrice}
+                  onChange={e => setCompareForm(f => ({ ...f, monthlyPrice: e.target.value }))} style={{ width: '100%' }} />
+              )}
+              <input className="input input--sm" placeholder="Discount (e.g. 10% pay-on-time)" value={compareForm.discount}
+                onChange={e => setCompareForm(f => ({ ...f, discount: e.target.value }))} style={{ width: '100%' }} />
+              <input className="input input--sm" placeholder="Other details / notes" value={compareForm.extras}
+                onChange={e => setCompareForm(f => ({ ...f, extras: e.target.value }))} style={{ width: '100%' }} />
+            </div>
+
             <button
               className="btn btn--primary btn--small"
               style={{ marginTop: '6px', width: '100%' }}
               onClick={handleCompare}
-              disabled={!compareInput.trim() || loading}
+              disabled={!compareHasData || loading}
             >
               ⚡ Compare against my usage
             </button>
           </div>
         )}
 
-        {/* Suggestions — always visible (not just when no messages) */}
-        {!showCompare && !loading && suggestions.length > 0 && (
+        {/* #9: Follow-up suggestions from AI */}
+        {!showCompare && !loading && followUps.length > 0 && (
+          <div className="ai-chat-suggestions ai-chat-followups">
+            <span className="ai-chat-followup-label">Follow up:</span>
+            {followUps.map((f, i) => (
+              <button key={`fu-${i}`} className="ai-chat-suggestion ai-chat-suggestion--followup" onClick={() => sendMessage(f)}>
+                {f}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Suggestions — always visible */}
+        {!showCompare && !loading && suggestions.length > 0 && followUps.length === 0 && (
           <div className="ai-chat-suggestions">
             {suggestionsLoading ? (
               <span className="muted" style={{ fontSize: '0.75rem' }}>Loading suggestions...</span>
@@ -278,27 +408,136 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
   );
 }
 
-/** Simple markdown-like formatting for AI responses */
-function formatMessageText(text: string): (string | React.ReactElement)[] {
-  // Split into lines and process
+// ─── #7: Rich Markdown Rendering ──────────────────────────
+
+/** Renders markdown text as React elements — supports tables, lists, headings, bold, code */
+function MarkdownContent({ text }: { text: string }) {
+  const elements = useMemo(() => parseMarkdown(text), [text]);
+  return <>{elements}</>;
+}
+
+function parseMarkdown(text: string): React.ReactNode[] {
   const lines = text.split('\n');
-  const elements: (string | React.ReactElement)[] = [];
+  const result: React.ReactNode[] = [];
+  let i = 0;
+  let key = 0;
 
-  for (let i = 0; i < lines.length; i++) {
+  while (i < lines.length) {
     const line = lines[i]!;
-    if (i > 0) elements.push(<br key={`br-${i}`} />);
 
-    // Bold **text**
-    const parts = line.split(/(\*\*[^*]+\*\*)/g);
-    for (let j = 0; j < parts.length; j++) {
-      const part = parts[j]!;
-      if (part.startsWith('**') && part.endsWith('**')) {
-        elements.push(<strong key={`${i}-${j}`} style={{ fontWeight: 600 }}>{part.slice(2, -2)}</strong>);
-      } else {
-        elements.push(part);
+    // Table — starts with | and next line is |---|
+    if (line.startsWith('|') && i + 1 < lines.length && /^\|[\s-:|]+\|/.test(lines[i + 1]!)) {
+      const tableLines: string[] = [line];
+      i++; // skip header
+      i++; // skip separator
+      while (i < lines.length && lines[i]!.startsWith('|')) {
+        tableLines.push(lines[i]!);
+        i++;
       }
+      result.push(<MarkdownTable key={key++} headerLine={tableLines[0]!} bodyLines={tableLines.slice(1)} />);
+      continue;
     }
+
+    // Heading
+    const headingMatch = line.match(/^(#{1,4})\s+(.+)/);
+    if (headingMatch) {
+      const level = headingMatch[1]!.length;
+      const content = headingMatch[2]!;
+      const Tag = `h${Math.min(level + 1, 6)}` as keyof React.JSX.IntrinsicElements;
+      result.push(<Tag key={key++} className="ai-md-heading">{inlineFormat(content)}</Tag>);
+      i++;
+      continue;
+    }
+
+    // Unordered list
+    if (/^[-*•]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[-*•]\s+/.test(lines[i]!)) {
+        items.push(lines[i]!.replace(/^[-*•]\s+/, ''));
+        i++;
+      }
+      result.push(
+        <ul key={key++} className="ai-md-list">
+          {items.map((item, j) => <li key={j}>{inlineFormat(item)}</li>)}
+        </ul>
+      );
+      continue;
+    }
+
+    // Ordered list
+    if (/^\d+[.)]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\d+[.)]\s+/.test(lines[i]!)) {
+        items.push(lines[i]!.replace(/^\d+[.)]\s+/, ''));
+        i++;
+      }
+      result.push(
+        <ol key={key++} className="ai-md-list">
+          {items.map((item, j) => <li key={j}>{inlineFormat(item)}</li>)}
+        </ol>
+      );
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) {
+      result.push(<hr key={key++} className="ai-md-hr" />);
+      i++;
+      continue;
+    }
+
+    // Empty line
+    if (line.trim() === '') {
+      i++;
+      continue;
+    }
+
+    // Regular paragraph
+    result.push(<p key={key++} className="ai-md-p">{inlineFormat(line)}</p>);
+    i++;
   }
 
-  return elements;
+  return result;
+}
+
+/** Render a markdown table */
+function MarkdownTable({ headerLine, bodyLines }: { headerLine: string; bodyLines: string[] }) {
+  const parseCells = (line: string) =>
+    line.split('|').slice(1, -1).map(c => c.trim());
+
+  const headers = parseCells(headerLine);
+  const rows = bodyLines.map(parseCells);
+
+  return (
+    <div className="ai-md-table-wrap">
+      <table className="ai-md-table">
+        <thead>
+          <tr>{headers.map((h, i) => <th key={i}>{inlineFormat(h)}</th>)}</tr>
+        </thead>
+        <tbody>
+          {rows.map((row, ri) => (
+            <tr key={ri}>{row.map((cell, ci) => <td key={ci}>{inlineFormat(cell)}</td>)}</tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Inline formatting: **bold**, `code`, *italic* */
+function inlineFormat(text: string): React.ReactNode[] {
+  // Split on **bold**, `code`, and *italic*
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return <code key={i} className="ai-md-code">{part.slice(1, -1)}</code>;
+    }
+    if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    }
+    return part;
+  });
 }
