@@ -63,14 +63,17 @@ Return ONLY valid JSON:
   ]
 }
 
-MUST extract these if present:
-- section "amount": Total amount ($), GST, new charges, previous balance, payment received, solar credit
-- section "amount": Usage quantity (kWh/MJ/kL — include the number AND unit), usage days
+MUST extract these if present (use these EXACT label names):
+- section "amount": "Total amount" ($), "GST", "New charges", "Previous balance", "Payment received", "Solar credit"
+- section "amount": "Usage (kWh)" or "Usage (MJ)" or "Usage (kL)" — the number with unit suffix, e.g. "1234.5 kWh"
+- section "amount": "Usage days" — number of days in the billing period
 - section "tariff": ALL rate/tariff entries — supply charge, peak/off-peak/shoulder rates, controlled load, feed-in tariff, discounts. Convert $/kWh to cents/kWh (multiply by 100). Include units (cents/kWh, cents/day, etc.)
-- section "date": Issue date, due date, period start, period end, next meter read
+- section "date": "Issue date", "Due date", "Period start" (YYYY-MM-DD), "Period end" (YYYY-MM-DD), "Next meter read"
 - section "identifier": Account number, NMI/MIRN, supply address
 - section "contract": Billing frequency, payment method
 - section "clause": Any price change notices, plan change warnings
+
+IMPORTANT label names: Use EXACTLY "Period start", "Period end", "Total amount", "Usage (kWh)", "Usage (MJ)", "Usage (kL)", "Usage days" — these labels must match exactly for the bill to be parsed correctly.
 
 For tariff rates from tables with columns like "Qty | Unit Rate | Amount":
 - The Unit Rate column has the tariff rate (often in $/kWh format — convert to cents/kWh)

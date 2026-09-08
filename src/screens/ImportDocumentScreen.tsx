@@ -102,6 +102,22 @@ function parseDateField(raw: string): string {
   return '';
 }
 
+// ── Fuzzy field finders for bill data extraction ─────────────
+// AI models return inconsistent label names — these patterns catch common variants
+const findByLabel = (insights: DocInsight[], patterns: RegExp[]): string => {
+  for (const p of patterns) {
+    const match = insights.find(x => p.test(x.label));
+    if (match) return match.value;
+  }
+  return '';
+};
+const PERIOD_START_RX = [/^period\s*start$/i, /^billing\s*period\s*start$/i, /^start\s*date$/i, /^from$/i, /period\s*start/i, /bill(ing)?\s*(from|start)/i];
+const PERIOD_END_RX = [/^period\s*end$/i, /^billing\s*period\s*end$/i, /^end\s*date$/i, /^to$/i, /period\s*end/i, /bill(ing)?\s*(to|end)/i];
+const USAGE_KWH_RX = [/^usage\s*\(kWh\)$/i, /^total\s*usage.*kWh/i, /kWh\s*usage/i, /electricity\s*usage/i, /^usage$/i, /^total\s*usage$/i, /^consumption/i, /^total\s*electricity/i];
+const USAGE_MJ_RX = [/^usage\s*\(MJ\)$/i, /MJ\s*usage/i, /gas\s*usage/i, /^total\s*gas/i];
+const USAGE_KL_RX = [/^usage\s*\(kL\)$/i, /kL\s*usage/i, /water\s*usage/i, /^total\s*water/i];
+const USAGE_DAYS_RX = [/^usage\s*days$/i, /^billing\s*days$/i, /^days$/i, /^number\s*of\s*days$/i, /days\s*in\s*(billing\s*)?period/i, /supply\s*days/i, /^billing\s*period\s*days$/i];
+
 export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }: Props) {
   const app = useApp();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -327,18 +343,28 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
         const res = allResults[i]!;
         const ins = res.insights;
         const total = findTotalAmount(ins);
-        const ps = ins.find(x => x.label === 'Period start')?.value || '';
-        const pe = ins.find(x => x.label === 'Period end')?.value || '';
-        const usageKwh = ins.find(x => x.label === 'Usage (kWh)')?.value.replace(/[^\d.,]/g, '') || '';
-        const usageMj = ins.find(x => x.label === 'Usage (MJ)')?.value.replace(/[^\d.,]/g, '') || '';
-        const usageKl = ins.find(x => x.label === 'Usage (kL)')?.value.replace(/[^\d.,]/g, '') || '';
-        const usageDays = ins.find(x => x.label === 'Usage days')?.value.replace(/[^\d]/g, '') || '';
+        const ps = findByLabel(ins, PERIOD_START_RX);
+        const pe = findByLabel(ins, PERIOD_END_RX);
+        // Usage: try kWh first, then MJ, then kL, then any "usage" field with a number
+        let rawUsage = findByLabel(ins, USAGE_KWH_RX);
+        let detectedUnit = 'kWh';
+        if (!rawUsage) { rawUsage = findByLabel(ins, USAGE_MJ_RX); detectedUnit = 'MJ'; }
+        if (!rawUsage) { rawUsage = findByLabel(ins, USAGE_KL_RX); detectedUnit = 'kL'; }
+        // Fallback: any "amount" section insight with kWh/MJ/kL in the value
+        if (!rawUsage) {
+          const usageIns = ins.find(x => x.section === 'amount' && /\d/.test(x.value) && /kWh|MJ|kL/i.test(x.value));
+          if (usageIns) {
+            rawUsage = usageIns.value;
+            if (/kWh/i.test(rawUsage)) detectedUnit = 'kWh';
+            else if (/MJ/i.test(rawUsage)) detectedUnit = 'MJ';
+            else if (/kL/i.test(rawUsage)) detectedUnit = 'kL';
+          }
+        }
+        const usageKwh = rawUsage ? rawUsage.replace(/[^\d.,]/g, '') : '';
+        const usageDays = findByLabel(ins, USAGE_DAYS_RX).replace(/[^\d]/g, '');
         // Pick the right usage value based on detected category
-        let usageQty = '';
-        let usageUnit = defaultUnit;
-        if (usageKwh) { usageQty = usageKwh; usageUnit = 'kWh'; }
-        else if (usageMj) { usageQty = usageMj; usageUnit = 'MJ'; }
-        else if (usageKl) { usageQty = usageKl; usageUnit = 'kL'; }
+        let usageQty = usageKwh;
+        let usageUnit = usageKwh ? detectedUnit : defaultUnit;
 
         if (total || usageQty) {
           const rawName = fileList[i]?.name || `File ${i + 1}`;
@@ -464,13 +490,13 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
         enabled: true,
       })));
 
-      // Pre-fill bill fields
+      // Pre-fill bill fields (use fuzzy matching same as multi-file path)
       const totalStr = findTotalAmount(result.insights);
       if (totalStr) setBillTotal(totalStr);
-      const ps = result.insights.find(i => i.label === 'Period start');
-      if (ps) setBillPeriodStart(ps.value);
-      const pe = result.insights.find(i => i.label === 'Period end');
-      if (pe) setBillPeriodEnd(pe.value);
+      const psVal = findByLabel(result.insights, PERIOD_START_RX);
+      if (psVal) setBillPeriodStart(parseDateField(psVal));
+      const peVal = findByLabel(result.insights, PERIOD_END_RX);
+      if (peVal) setBillPeriodEnd(parseDateField(peVal));
 
       setProgress({ percent: 100, status: 'Done' });
       setPhase('review');
