@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { eraseAll, getAiConfig, setAiConfig, getTokenUsage, resetTokenUsage, isUsingProxy, setProxyAvailable } from '../platform/storage';
+import { eraseAll, getAiConfig, setAiConfig, getTokenUsage, resetTokenUsage, isUsingProxy, setProxyAvailable, isUsingDemoKey } from '../platform/storage';
 import { PROVIDERS, COMPATIBLE_PRESETS, isProxyAvailable, type ProviderId, type AiConfig } from '../platform/ai-providers';
 import { useAuth } from '../store/AuthContext';
 
@@ -133,9 +133,35 @@ export function SettingsScreen({ onBack }: Props) {
           </div>
         )}
 
+        {/* Demo mode badge */}
+        {isUsingDemoKey() && (
+          <div style={{
+            padding: '12px 16px',
+            borderRadius: 'var(--radius-sm)',
+            background: 'color-mix(in srgb, var(--accent) 8%, var(--surface))',
+            border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+          }}>
+            <span style={{ fontSize: '1.2rem' }}>🎁</span>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                <span style={{ color: 'var(--accent)' }}>● Demo mode</span> — free AI parsing active
+              </div>
+              <div className="muted" style={{ fontSize: '0.78rem', marginTop: '2px' }}>
+                You can try AI document parsing right now. Add your own API key below to use your preferred provider.
+              </div>
+            </div>
+          </div>
+        )}
+
         <p className="muted" style={{ marginBottom: '12px' }}>
           {proxyStatus === 'available' && !existing?.apiKey
             ? 'AI is already connected via the server. You can optionally override it with your own API key below.'
+            : isUsingDemoKey()
+            ? 'AI parsing is available in demo mode. Add your own API key to use your preferred provider and model.'
             : 'Connect your AI to enable smart document parsing. Upload a bill or contract and AI will extract provider, amount, dates, and category automatically.'}
         </p>
 
@@ -316,9 +342,14 @@ export function SettingsScreen({ onBack }: Props) {
             <span style={{ color: 'var(--ok)' }}>● Connected</span> — {provider.icon} {provider.label}
           </p>
         )}
-        {!apiKey && (
+        {!apiKey && !isUsingDemoKey() && (
           <p style={{ marginTop: '10px', fontSize: '0.85rem' }}>
             <span style={{ color: 'var(--muted)' }}>○ Not configured</span> — Using basic regex extraction (less accurate)
+          </p>
+        )}
+        {!apiKey && isUsingDemoKey() && (
+          <p style={{ marginTop: '10px', fontSize: '0.85rem' }}>
+            <span style={{ color: 'var(--accent)' }}>● Demo mode</span> — AI parsing available. Add your own key for full control.
           </p>
         )}
 

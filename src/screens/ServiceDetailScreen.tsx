@@ -15,7 +15,7 @@ interface Props {
   onBack: () => void;
 }
 
-type Tab = 'overview' | 'bills' | 'documents';
+type Tab = 'overview' | 'bills' | 'rates' | 'contract' | 'coverage' | 'documents';
 
 interface PendingChange {
   id: string;
@@ -23,6 +23,11 @@ interface PendingChange {
   description: string;
   apply: () => Promise<void>;
 }
+
+const INSURANCE_CATEGORIES = new Set([
+  'HOME_INSURANCE', 'CAR_INSURANCE', 'HEALTH_INSURANCE', 'LIFE_INSURANCE',
+  'CONTENTS_INSURANCE', 'PET_INSURANCE', 'TRAVEL_INSURANCE',
+]);
 
 export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
   const app = useApp();
@@ -67,7 +72,6 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
         const doc = allDocs[i]!;
         setReparseStatus(`Re-extracting ${doc.fileName || doc.title} (${i + 1}/${allDocs.length})...`);
 
-        // Re-extract text from stored file (uses improved text extraction)
         let text = doc.ocrText || '';
         const storedFile = await app.loadFile(doc.id);
         if (storedFile) {
@@ -77,7 +81,6 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
             text = await extractText(file, p => {
               setReparseStatus(`${p.status} — ${doc.fileName} (${i + 1}/${allDocs.length})`);
             });
-            // Update stored ocrText with improved extraction
             await app.saveDoc({ ...doc, ocrText: text });
           } catch (e) {
             console.warn('[Re-parse] Failed to re-extract text for', doc.fileName, e);
@@ -104,11 +107,9 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
           result = parseDocument(text);
         }
 
-        // Build tariff entries from this doc's insights
         const effectiveDate = doc.docDate || today();
         for (const ins of result.insights) {
           if (['date'].includes(ins.section)) continue;
-          // Deduplicate: skip if same label already exists (case-insensitive)
           if (allEntries.some(e => e.label.toLowerCase() === ins.label.toLowerCase())) continue;
           allEntries.push({
             id: uuid(),
@@ -122,7 +123,6 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
         }
       }
 
-      // Update service with fresh tariff history
       setReparseStatus('Saving...');
       const updatedSvc: Service = {
         ...svc,
@@ -131,7 +131,6 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
         updatedAt: today(),
       };
 
-      // Update amount from the main cost field (premium, plan price, rent, etc.)
       const AMOUNT_LABELS = [
         'Total premium', 'Premium', 'Car premium',
         'Plan price', 'Subscription price',
@@ -161,7 +160,7 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
 
   if (!svc) return <div className="loading"><div className="spinner" /></div>;
 
-  // ─── Add a pending change ────────────────────────────────
+  // ─── Pending changes helpers ─────────────────────────────
 
   const addPending = (change: Omit<PendingChange, 'id'>) => {
     const id = Math.random().toString(36).slice(2);
@@ -189,15 +188,11 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
     setShowConfirmBar(false);
   };
 
-  // ─── Handlers ──────────────────────────────────────────────
-
   const handleDeleteBill = (billId: string, periodStart: string) => {
     addPending({
       type: 'deleteBill',
       description: `Delete bill from ${formatDate(periodStart)}`,
-      apply: async () => {
-        await app.deleteBill(billId);
-      },
+      apply: async () => { await app.deleteBill(billId); },
     });
   };
 
@@ -208,78 +203,96 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
     }
   };
 
-  // ─── Tariff history (sorted newest first) ─────────────────
+  // ─── Derived data ────────────────────────────────────────
+
   const tariffHistory = (svc.tariffHistory || [])
     .sort((a, b) => (b.effectiveDate || '').localeCompare(a.effectiveDate || ''));
+
+  const isInsurance = INSURANCE_CATEGORIES.has(svc.category);
+  const isUsageSvc = USAGE_CATEGORIES.has(svc.category);
+
+  // Section helpers
+  const entriesFor = (section: string) => tariffHistory.filter(t => t.section === section);
+  const currentEntries = (section: string) => entriesFor(section).filter(e => !e.endDate);
+  const endedEntries = (section: string) => entriesFor(section).filter(e => e.endDate);
+  const hasEntries = (section: string) => entriesFor(section).length > 0;
 
   const daysUntil = (date: string) => {
     if (!date) return null;
     return Math.ceil((new Date(date).getTime() - Date.now()) / 86400000);
   };
 
-  /** Render a tariff/contract/clause section with timeline */
-  const renderTariffSection = (section: string, icon: string, title: string) => {
-    const entries = tariffHistory.filter(t => t.section === section);
-    // Group by label — current (no endDate) first, then ended
-    const currentEntries = entries.filter(e => !e.endDate);
-    const endedEntries = entries.filter(e => e.endDate);
+  // Build available tabs
+  const availableTabs: { id: Tab; label: string; icon: string; count?: number }[] = [
+    { id: 'overview', label: 'Overview', icon: '📋' },
+    { id: 'bills', label: 'Bills', icon: '🧾', count: bills.length },
+    { id: 'rates', label: 'Rates & Plan', icon: '📊' },
+    { id: 'contract', label: 'Contract', icon: '📝' },
+  ];
+  if (isInsurance && hasEntries('coverage')) {
+    availableTabs.splice(3, 0, { id: 'coverage', label: 'Coverage', icon: '🛡️' });
+  }
+  availableTabs.push({ id: 'documents', label: 'Documents', icon: '📄', count: docs.length });
 
-    if (currentEntries.length === 0 && endedEntries.length === 0) {
-      // Don't show empty coverage section for non-insurance services
-      if (section === 'coverage') return null;
+  // ─── Render helpers ─────────────────────────────────────
+
+  /** Render a tariff entry with optional change history */
+  const renderEntry = (entry: TariffEntry, ended: TariffEntry[]) => {
+    const lv = entry.value.toLowerCase();
+    const coverageColor = entry.section === 'coverage'
+      ? /^(?:included|covered)$/i.test(lv) ? 'var(--ok)'
+        : /^(?:restricted)$/i.test(lv) ? 'var(--warn)'
+        : /(?:not\s*(?:included|covered)|excluded)$/i.test(lv) ? 'var(--bad, #f44336)'
+        : undefined
+      : undefined;
+
+    const previousEntry = ended.find(e => e.label === entry.label);
+
+    return (
+      <div key={entry.id} className="tariff-entry">
+        <div className="tariff-entry__header">
+          <span className="tariff-entry__label">{entry.label}</span>
+          <span className="tariff-entry__value" style={coverageColor ? { color: coverageColor } : undefined}>{entry.value}</span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span className="tariff-entry__date">Since {formatDate(entry.effectiveDate)}</span>
+          {previousEntry && (
+            <span style={{ fontSize: '0.72rem', color: 'var(--warn)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              ⚡ was <span style={{ textDecoration: 'line-through' }}>{previousEntry.value}</span>
+              <span className="muted">({formatDate(previousEntry.effectiveDate)} – {formatDate(previousEntry.endDate!)})</span>
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  /** Render a section of tariff entries with collapsible history */
+  const renderSection = (section: string, icon: string, title: string, opts?: { emptyMessage?: string; hideEmpty?: boolean }) => {
+    const current = currentEntries(section);
+    const ended = endedEntries(section);
+
+    if (current.length === 0 && ended.length === 0) {
+      if (opts?.hideEmpty) return null;
       return (
-        <div className="card">
-          <h3>{icon} {title}</h3>
-          <p className="muted">No data yet. Upload a document to extract {title.toLowerCase()}.</p>
+        <div className="detail-section">
+          <h4 className="detail-section__title">{icon} {title}</h4>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>{opts?.emptyMessage || 'No data yet. Upload a document to extract this info.'}</p>
         </div>
       );
     }
 
     return (
-      <div className="card">
-        <h3>{icon} {title}</h3>
-        {/* Current rates */}
-        {currentEntries.map(entry => {
-          // Color-code coverage values
-          const lv = entry.value.toLowerCase();
-          const coverageColor = section === 'coverage'
-            ? /^(?:included|covered)$/i.test(lv) ? 'var(--color-ok, #4caf50)'
-              : /^(?:restricted)$/i.test(lv) ? 'var(--color-warn, #ff9800)'
-              : /(?:not\s*(?:included|covered)|excluded)$/i.test(lv) ? 'var(--color-bad, #f44336)'
-              : undefined
-            : undefined;
-
-          // Check if there's a historical (ended) entry with same label → means it changed
-          const previousEntry = endedEntries.find(e => e.label === entry.label);
-
-          return (
-            <div key={entry.id} className="tariff-entry">
-              <div className="tariff-entry__header">
-                <span className="tariff-entry__label">{entry.label}</span>
-                <span className="tariff-entry__value" style={coverageColor ? { color: coverageColor } : undefined}>{entry.value}</span>
-              </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <span className="tariff-entry__date">
-                  Since {formatDate(entry.effectiveDate)}
-                </span>
-                {previousEntry && (
-                  <span style={{ fontSize: '0.72rem', color: 'var(--warn)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    ⚡ was <span style={{ textDecoration: 'line-through' }}>{previousEntry.value}</span>
-                    <span className="muted">({formatDate(previousEntry.effectiveDate)} – {formatDate(previousEntry.endDate!)})</span>
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-        {/* Historical (ended) rates */}
-        {endedEntries.length > 0 && (
+      <div className="detail-section">
+        <h4 className="detail-section__title">{icon} {title}</h4>
+        {current.map(entry => renderEntry(entry, ended))}
+        {ended.length > 0 && (
           <details style={{ marginTop: '8px' }}>
             <summary className="muted" style={{ cursor: 'pointer', fontSize: '0.85rem' }}>
-              📜 History ({endedEntries.length} previous)
+              📜 History ({ended.length} previous)
             </summary>
             <div className="tariff-timeline" style={{ marginTop: '6px' }}>
-              {endedEntries.map(entry => (
+              {ended.map(entry => (
                 <div key={entry.id} className="tariff-entry tariff-entry--ended">
                   <div className="tariff-entry__header">
                     <span className="tariff-entry__label">{entry.label}</span>
@@ -297,6 +310,94 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
     );
   };
 
+  /** Render key dates with warnings */
+  const renderKeyDates = () => {
+    const dates: { label: string; value: string; warn?: boolean; danger?: boolean }[] = [];
+    if (svc.startDate) dates.push({ label: 'Start date', value: formatDate(svc.startDate) });
+    if (svc.benefitEndDate) {
+      const d = daysUntil(svc.benefitEndDate);
+      dates.push({
+        label: 'Benefit ends',
+        value: `${formatDate(svc.benefitEndDate)}${d !== null ? ` (${d} days)` : ''}`,
+        warn: d !== null && d <= 60,
+        danger: d !== null && d <= 14,
+      });
+    }
+    if (svc.contractEndDate) {
+      const d = daysUntil(svc.contractEndDate);
+      dates.push({
+        label: 'Contract ends',
+        value: `${formatDate(svc.contractEndDate)}${d !== null ? ` (${d} days)` : ''}`,
+        warn: d !== null && d <= 60,
+        danger: d !== null && d <= 14,
+      });
+    }
+    // Pull contract dates from tariff history too
+    const contractDates = currentEntries('contract').filter(e =>
+      /end date|expiry|renewal|notice period/i.test(e.label)
+    );
+    for (const e of contractDates) {
+      if (!dates.some(d => d.label === e.label)) {
+        dates.push({ label: e.label, value: e.value });
+      }
+    }
+
+    if (dates.length === 0) return null;
+
+    return (
+      <div className="detail-section">
+        <h4 className="detail-section__title">📅 Key Dates</h4>
+        <div className="dates-grid">
+          {dates.map(d => (
+            <div key={d.label} className="fact-row">
+              <span className="fact-label">{d.label}</span>
+              <span className={`fact-value ${d.danger ? 'text-danger' : d.warn ? 'text-warn' : ''}`}>{d.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  /** Render identifiers */
+  const renderIdentifiers = () => {
+    const items: { label: string; value: string }[] = [];
+    if (svc.accountNumber) items.push({ label: 'Account #', value: svc.accountNumber });
+    if (svc.meterIdentifier) items.push({ label: 'Meter ID', value: svc.meterIdentifier });
+    for (const t of currentEntries('identifier')) {
+      if (t.label !== 'Account number' && t.label !== 'NMI' && t.label !== 'MIRN') {
+        items.push({ label: t.label, value: t.value });
+      }
+    }
+    if (items.length === 0) return null;
+    return (
+      <div className="detail-section">
+        <h4 className="detail-section__title">🔑 Identifiers</h4>
+        {items.map(i => (
+          <div key={i.label} className="fact-row">
+            <span className="fact-label">{i.label}</span>
+            <span className="fact-value">{i.value}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // ─── Exit / disconnection info (shown in both Overview warnings and Contract tab) ───
+  const exitInfo: { label: string; value: string; warn?: boolean }[] = [];
+  if (svc.exitFeeCents > 0) exitInfo.push({ label: 'Exit fee', value: money(svc.exitFeeCents), warn: true });
+  const exitEntries = currentEntries('clause').filter(e =>
+    /exit|cancel|disconnect|termination|early|break|switching|notice period/i.test(e.label)
+  );
+  for (const e of exitEntries) {
+    exitInfo.push({ label: e.label, value: e.value, warn: /fee|penalty|charge/i.test(e.value) });
+  }
+
+  // Auto-renewal / important clauses
+  const importantClauses = currentEntries('clause').filter(e =>
+    /auto.?renew|price.?change|price.?variation|lock.?in|grandfather|hardship/i.test(e.label)
+  );
+
   return (
     <div className="stack">
       {/* Header */}
@@ -308,6 +409,7 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
         </div>
       </div>
 
+      {/* Service header */}
       <div className="service-header">
         <h2>{svc.nickname}</h2>
         <div className="row">
@@ -315,7 +417,7 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
           <span className="tag tag--status">{svc.status}</span>
         </div>
         <div className="service-header__cost">
-          {USAGE_CATEGORIES.has(svc.category) && svc.billAvgMonthlyCents && svc.billAvgMonthlyCents > 0 ? (
+          {isUsageSvc && svc.billAvgMonthlyCents && svc.billAvgMonthlyCents > 0 ? (
             <>
               <span className="money big">~{money(svc.billAvgMonthlyCents)}</span>
               <span className="muted">/ mo avg</span>
@@ -332,54 +434,56 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
         {svc.provider && <span className="muted">{svc.provider}{svc.planName ? ` — ${svc.planName}` : ''}</span>}
       </div>
 
-      {/* Key dates */}
-      {(svc.startDate || svc.benefitEndDate || svc.contractEndDate) && (
-        <div className="card">
-          <h3>Key Dates</h3>
-          <div className="dates-grid">
-            {svc.startDate && <div className="fact-row"><span className="fact-label">Start</span><span className="fact-value">{formatDate(svc.startDate)}</span></div>}
-            {svc.benefitEndDate && (
-              <div className="fact-row">
-                <span className="fact-label">Benefit ends</span>
-                <span className={`fact-value ${(daysUntil(svc.benefitEndDate) ?? 999) <= 30 ? 'text-warn' : ''}`}>
-                  {formatDate(svc.benefitEndDate)}
-                  {daysUntil(svc.benefitEndDate) !== null && ` (${daysUntil(svc.benefitEndDate)} days)`}
-                </span>
-              </div>
-            )}
-            {svc.contractEndDate && (
-              <div className="fact-row">
-                <span className="fact-label">Contract ends</span>
-                <span className={`fact-value ${(daysUntil(svc.contractEndDate) ?? 999) <= 30 ? 'text-danger' : ''}`}>
-                  {formatDate(svc.contractEndDate)}
-                  {daysUntil(svc.contractEndDate) !== null && ` (${daysUntil(svc.contractEndDate)} days)`}
-                </span>
-              </div>
-            )}
+      {/* Urgent warnings banner */}
+      {(exitInfo.some(e => e.warn) || (svc.contractEndDate && (daysUntil(svc.contractEndDate) ?? 999) <= 30) || (svc.benefitEndDate && (daysUntil(svc.benefitEndDate) ?? 999) <= 30)) && (
+        <div className="card" style={{ border: '1px solid var(--warn)', background: 'color-mix(in srgb, var(--warn) 6%, var(--surface))' }}>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+            <span style={{ fontSize: '1.3rem' }}>⚠️</span>
+            <div>
+              {svc.contractEndDate && (daysUntil(svc.contractEndDate) ?? 999) <= 30 && (
+                <div style={{ fontWeight: 600, color: 'var(--warn)', marginBottom: '4px' }}>
+                  Contract ends in {daysUntil(svc.contractEndDate)} days ({formatDate(svc.contractEndDate)})
+                </div>
+              )}
+              {svc.benefitEndDate && (daysUntil(svc.benefitEndDate) ?? 999) <= 30 && (
+                <div style={{ fontWeight: 600, color: 'var(--warn)', marginBottom: '4px' }}>
+                  Benefit ends in {daysUntil(svc.benefitEndDate)} days ({formatDate(svc.benefitEndDate)})
+                </div>
+              )}
+              {exitInfo.filter(e => e.warn).map(e => (
+                <div key={e.label} style={{ fontSize: '0.85rem', color: 'var(--text)', marginBottom: '2px' }}>
+                  {e.label}: <strong>{e.value}</strong>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
 
       {/* Tabs */}
-      <div className="tabs">
-        {(['overview', 'bills', 'documents'] as Tab[]).map(t => (
-          <button key={t} className="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-            {t === 'overview' ? 'Overview' : t === 'bills' ? `Bills (${bills.length})` : `Documents (${docs.length})`}
+      <div className="tabs" style={{ overflowX: 'auto' }}>
+        {availableTabs.map(t => (
+          <button key={t.id} className="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
+            <span className="tab__icon">{t.icon}</span>
+            <span>{t.label}</span>
+            {t.count !== undefined && t.count > 0 && <span className="tab__badge">{t.count}</span>}
           </button>
         ))}
       </div>
 
-      {/* Tab content */}
+      {/* ═══════════════════════════════════════════════════════
+          TAB: Overview
+          ═══════════════════════════════════════════════════════ */}
       {tab === 'overview' && (
         <div className="stack">
-          {/* Prominent upload button on overview */}
+          {/* Upload + Re-parse */}
           <div className="row" style={{ gap: '8px' }}>
             <button
               className="btn btn--primary btn--lg"
               style={{ flex: 1, fontSize: '1.1rem', padding: '14px' }}
               onClick={() => onNavigate('import-doc', { serviceId })}
             >
-              📄 Upload &amp; Parse Document
+              📄 Upload & Parse Document
             </button>
             {docs.length > 0 && (
               <button
@@ -397,7 +501,7 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
             <p className="muted" style={{ textAlign: 'center', margin: '-4px 0' }}>{reparseStatus}</p>
           )}
 
-          {/* ── AI Summary ──────────────────────────────────── */}
+          {/* AI Summary */}
           {svc.summary && (
             <div className="card card--summary">
               <h3>📝 Summary</h3>
@@ -405,7 +509,61 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
             </div>
           )}
 
-          {/* ── Next Bill Forecast ──────────────────────────── */}
+          {/* Key Dates */}
+          {renderKeyDates()}
+
+          {/* Quick glance: top rates + cost */}
+          {hasEntries('tariff') && (
+            <div className="detail-section">
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                <h4 className="detail-section__title" style={{ margin: 0 }}>📊 Current Rates</h4>
+                <button className="btn btn--small btn--outline" onClick={() => setTab('rates')}>View all →</button>
+              </div>
+              {currentEntries('tariff').slice(0, 5).map(entry => renderEntry(entry, endedEntries('tariff')))}
+              {currentEntries('tariff').length > 5 && (
+                <p className="muted" style={{ fontSize: '0.82rem', marginTop: '6px', cursor: 'pointer' }} onClick={() => setTab('rates')}>
+                  + {currentEntries('tariff').length - 5} more rates...
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Exit / disconnection quick view */}
+          {exitInfo.length > 0 && (
+            <div className="detail-section">
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                <h4 className="detail-section__title" style={{ margin: 0 }}>🚪 Exit & Disconnection</h4>
+                <button className="btn btn--small btn--outline" onClick={() => setTab('contract')}>Details →</button>
+              </div>
+              {exitInfo.map(e => (
+                <div key={e.label} className="fact-row">
+                  <span className="fact-label">{e.label}</span>
+                  <span className={`fact-value ${e.warn ? 'text-warn' : ''}`}>{e.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Important clauses quick view */}
+          {importantClauses.length > 0 && (
+            <div className="detail-section">
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                <h4 className="detail-section__title" style={{ margin: 0 }}>⚡ Important</h4>
+                <button className="btn btn--small btn--outline" onClick={() => setTab('contract')}>Details →</button>
+              </div>
+              {importantClauses.map(e => (
+                <div key={e.id} className="fact-row">
+                  <span className="fact-label">{e.label}</span>
+                  <span className="fact-value">{e.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Identifiers */}
+          {renderIdentifiers()}
+
+          {/* Forecast */}
           <div className="card" style={{ border: showForecast && forecast ? '1px solid var(--accent)' : undefined }}>
             <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ margin: 0 }}>🔮 Next Bill Forecast</h3>
@@ -434,7 +592,6 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
 
               return (
                 <div style={{ marginTop: '16px' }}>
-                  {/* Big number */}
                   <div style={{ textAlign: 'center', padding: '16px 0' }}>
                     <div style={{ fontSize: '2.2rem', fontWeight: 700, color: 'var(--accent)' }}>
                       {money(forecast.estimatedCents)}
@@ -453,7 +610,6 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
                     </div>
                   </div>
 
-                  {/* Comparison to last bill */}
                   {forecast.vsLastBill && (
                     <div style={{
                       textAlign: 'center', padding: '10px', borderRadius: '8px',
@@ -474,7 +630,6 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
                     </div>
                   )}
 
-                  {/* Breakdown */}
                   <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '12px' }}>
                     <h4 style={{ margin: '0 0 8px', fontSize: '0.9rem', color: 'var(--muted)' }}>Breakdown</h4>
                     {forecast.breakdown.map((line, i) => (
@@ -494,7 +649,6 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
                         </span>
                       </div>
                     ))}
-                    {/* Total line */}
                     <div style={{
                       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                       padding: '10px 0 0', borderTop: '2px solid rgba(255,255,255,0.1)', marginTop: '4px',
@@ -506,7 +660,6 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
                     </div>
                   </div>
 
-                  {/* Method explanation */}
                   <p className="muted" style={{ fontSize: '0.78rem', marginTop: '10px', textAlign: 'center' }}>
                     {forecast.method}
                   </p>
@@ -514,33 +667,6 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
               );
             })()}
           </div>
-
-          {/* ── Coverage & Benefits (insurance) ────────────── */}
-          {renderTariffSection('coverage', '🛡️', 'Coverage & Benefits')}
-
-          {/* ── Tariff History ─────────────────────────────── */}
-          {renderTariffSection('tariff', '📊', 'Tariffs & Rates')}
-          {renderTariffSection('contract', '📋', 'Contract Terms')}
-          {renderTariffSection('clause', '📌', 'Important Clauses')}
-
-          {/* Account identifiers */}
-          {(svc.accountNumber || svc.meterIdentifier || (tariffHistory.filter(t => t.section === 'identifier').length > 0)) && (
-            <div className="card">
-              <h3>🔑 Identifiers</h3>
-              {svc.accountNumber && (
-                <div className="fact-row"><span className="fact-label">Account #</span><span className="fact-value">{svc.accountNumber}</span></div>
-              )}
-              {svc.meterIdentifier && (
-                <div className="fact-row"><span className="fact-label">Meter ID</span><span className="fact-value">{svc.meterIdentifier}</span></div>
-              )}
-              {tariffHistory.filter(t => t.section === 'identifier' && t.label !== 'Account number' && t.label !== 'NMI' && t.label !== 'MIRN').map(t => (
-                <div key={t.id} className="fact-row">
-                  <span className="fact-label">{t.label}</span>
-                  <span className="fact-value">{t.value}</span>
-                </div>
-              ))}
-            </div>
-          )}
 
           {svc.notes && (
             <div className="card">
@@ -551,9 +677,11 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
         </div>
       )}
 
+      {/* ═══════════════════════════════════════════════════════
+          TAB: Bills
+          ═══════════════════════════════════════════════════════ */}
       {tab === 'bills' && (() => {
-        const isUsageSvc = svc ? USAGE_CATEGORIES.has(svc.category) : false;
-        const unit = svc ? USAGE_UNITS[svc.category] || '' : '';
+        const unit = USAGE_UNITS[svc.category] || '';
         const sortedBills = [...bills].sort((a, b) => (a.periodStart || '').localeCompare(b.periodStart || ''));
         const usageBills = sortedBills.filter(b => b.usageQuantity && b.usageQuantity > 0);
         const maxUsage = usageBills.length > 0 ? Math.max(...usageBills.map(b => b.usageQuantity!)) : 0;
@@ -563,7 +691,7 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
           <div className="stack">
             <button className="btn btn--primary" onClick={() => onNavigate('add-bill', { serviceId })}>+ Add Bill</button>
 
-            {/* ─── Usage chart (for electricity/gas/water) ─── */}
+            {/* Usage chart (for electricity/gas/water) */}
             {isUsageSvc && usageBills.length >= 2 && (
               <div className="card">
                 <h3>📈 Usage History ({unit})</h3>
@@ -592,7 +720,6 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
                     );
                   })}
                 </div>
-                {/* Daily average */}
                 {usageBills.length > 0 && (() => {
                   const totalQty = usageBills.reduce((s, b) => s + (b.usageQuantity || 0), 0);
                   const totalDays = usageBills.reduce((s, b) => s + (b.usageDays || 0), 0);
@@ -606,7 +733,7 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
               </div>
             )}
 
-            {/* ─── Cost chart ─── */}
+            {/* Cost chart */}
             {sortedBills.length >= 2 && (
               <div className="card">
                 <h3>💰 Cost History</h3>
@@ -638,7 +765,7 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
               </div>
             )}
 
-            {/* ─── Bill list ─── */}
+            {/* Bill list */}
             {bills.length === 0 ? (
               <div className="empty"><p>No bills yet. Import a document or add a bill manually.</p></div>
             ) : (
@@ -675,6 +802,90 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
         );
       })()}
 
+      {/* ═══════════════════════════════════════════════════════
+          TAB: Rates & Plan
+          ═══════════════════════════════════════════════════════ */}
+      {tab === 'rates' && (
+        <div className="stack">
+          <button className="btn btn--primary" onClick={() => onNavigate('import-doc', { serviceId })}>
+            📄 Upload document to update rates
+          </button>
+
+          {/* Amount section — totals, balances, usage */}
+          {renderSection('amount', '💰', 'Amounts & Totals', { hideEmpty: true })}
+
+          {/* Tariff rates */}
+          {renderSection('tariff', '📊', 'Tariffs & Rates', {
+            emptyMessage: 'No rate data yet. Upload a bill or contract to extract tariffs.',
+          })}
+
+          {/* Coverage in rates tab for insurance */}
+          {isInsurance && renderSection('coverage', '🛡️', 'Coverage & Benefits', { hideEmpty: true })}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════
+          TAB: Contract
+          ═══════════════════════════════════════════════════════ */}
+      {tab === 'contract' && (
+        <div className="stack">
+          <button className="btn btn--primary" onClick={() => onNavigate('import-doc', { serviceId })}>
+            📄 Upload contract document
+          </button>
+
+          {/* Key dates (also in overview) */}
+          {renderKeyDates()}
+
+          {/* Exit & Disconnection — prominently displayed */}
+          {exitInfo.length > 0 ? (
+            <div className="detail-section" style={{ border: '1px solid var(--warn)', background: 'color-mix(in srgb, var(--warn) 4%, var(--surface))', padding: '16px', borderRadius: 'var(--radius)' }}>
+              <h4 className="detail-section__title" style={{ margin: '0 0 10px' }}>🚪 Exit & Disconnection</h4>
+              {exitInfo.map(e => (
+                <div key={e.label} className="fact-row">
+                  <span className="fact-label">{e.label}</span>
+                  <span className={`fact-value ${e.warn ? 'text-warn' : ''}`}>{e.value}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="detail-section">
+              <h4 className="detail-section__title">🚪 Exit & Disconnection</h4>
+              <p className="muted" style={{ fontSize: '0.85rem' }}>No exit or disconnection terms found. Upload a contract to extract this info.</p>
+            </div>
+          )}
+
+          {/* Contract terms */}
+          {renderSection('contract', '📋', 'Contract Terms', {
+            emptyMessage: 'No contract terms found. Upload a contract document.',
+          })}
+
+          {/* Important clauses */}
+          {renderSection('clause', '📌', 'Important Clauses', {
+            emptyMessage: 'No special clauses found. Upload a contract or PDS to extract clauses like auto-renewal, price changes, etc.',
+          })}
+
+          {/* Identifiers (also useful here) */}
+          {renderIdentifiers()}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════
+          TAB: Coverage (insurance only)
+          ═══════════════════════════════════════════════════════ */}
+      {tab === 'coverage' && (
+        <div className="stack">
+          <button className="btn btn--primary" onClick={() => onNavigate('import-doc', { serviceId })}>
+            📄 Upload policy document
+          </button>
+          {renderSection('coverage', '🛡️', 'Coverage & Benefits', {
+            emptyMessage: 'No coverage data yet. Upload a PDS or policy certificate.',
+          })}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════
+          TAB: Documents
+          ═══════════════════════════════════════════════════════ */}
       {tab === 'documents' && (
         <div className="stack">
           <button className="btn btn--primary" onClick={() => onNavigate('import-doc', { serviceId })}>📄 Import Document</button>

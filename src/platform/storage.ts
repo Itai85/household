@@ -417,8 +417,11 @@ export function hasAiConfig(): boolean {
   if (config && config.apiKey) return true;
   // Also true if server proxy is configured (sentinel in localStorage)
   try {
-    return localStorage.getItem('household_ai_proxy') === 'true';
-  } catch { return false; }
+    if (localStorage.getItem('household_ai_proxy') === 'true') return true;
+  } catch {}
+  // Also true if demo key is available
+  if (import.meta.env.VITE_DEMO_AI_KEY) return true;
+  return false;
 }
 
 /** Mark that server-side AI proxy is available */
@@ -439,7 +442,7 @@ export function isUsingProxy(): boolean {
   } catch { return false; }
 }
 
-/** Get AI config — returns proxy sentinel if server proxy is available and no local config */
+/** Get AI config — returns proxy sentinel if server proxy is available, then demo key, then null */
 export function getEffectiveAiConfig(): AiConfig | null {
   const local = getAiConfig();
   if (local && local.apiKey) return local;
@@ -447,7 +450,26 @@ export function getEffectiveAiConfig(): AiConfig | null {
   if (isUsingProxy()) {
     return { providerId: 'server-proxy' as any, apiKey: 'proxy', modelId: 'auto' };
   }
+  // Fall back to built-in demo key (set via VITE_DEMO_AI_KEY env var)
+  const demoConfig = getDemoAiConfig();
+  if (demoConfig) return demoConfig;
   return local;
+}
+
+/** Check if a built-in demo AI key is configured (via env vars) */
+export function getDemoAiConfig(): AiConfig | null {
+  const key = import.meta.env.VITE_DEMO_AI_KEY;
+  if (!key) return null;
+  const provider = (import.meta.env.VITE_DEMO_AI_PROVIDER || 'gemini') as AiConfig['providerId'];
+  return { providerId: provider, apiKey: key, modelId: 'auto' };
+}
+
+/** Check if the effective config is using the built-in demo key */
+export function isUsingDemoKey(): boolean {
+  const local = getAiConfig();
+  if (local && local.apiKey) return false;
+  if (isUsingProxy()) return false;
+  return !!import.meta.env.VITE_DEMO_AI_KEY;
 }
 
 // Legacy getters
