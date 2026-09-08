@@ -771,9 +771,18 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
             ) : (
               sortedBills.reverse().map(b => {
                 const hasDates = b.periodStart || b.periodEnd;
+                // Find the source document for this bill (match by createdAt within 60s)
+                const sourceDoc = docs.find(d =>
+                  d.docTypes?.includes('BILL') &&
+                  Math.abs(new Date(d.createdAt).getTime() - new Date(b.createdAt).getTime()) < 60000
+                ) || docs.find(d => d.docDate === b.periodStart);
+                const docName = sourceDoc?.fileName || sourceDoc?.title || '';
+
                 const billLabel = hasDates
                   ? `${formatDate(b.periodStart)} — ${formatDate(b.periodEnd)}`
-                  : `Bill from ${formatDate(b.createdAt)}`;
+                  : docName
+                    ? docName.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ')
+                    : `Bill from ${formatDate(b.createdAt)}`;
                 return (
                 <div key={b.id} className="card bill-card">
                   <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
@@ -783,6 +792,9 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
                     </div>
                     <span className="money" style={{ fontSize: '1.1rem' }}>{money(b.totalCents)}</span>
                   </div>
+                  {docName && hasDates && (
+                    <div className="muted" style={{ fontSize: '0.78rem', marginTop: '2px' }}>📄 {docName}</div>
+                  )}
                   {b.usageQuantity != null && b.usageQuantity > 0 && (
                     <div style={{ display: 'flex', gap: '16px', marginTop: '4px' }}>
                       <span style={{ color: '#3b82f6', fontWeight: 600 }}>
