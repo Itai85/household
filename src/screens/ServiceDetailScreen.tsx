@@ -698,8 +698,8 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', height: '140px', marginTop: '12px' }}>
                   {usageBills.map(b => {
                     const pct = maxUsage > 0 ? (b.usageQuantity! / maxUsage) * 100 : 0;
-                    const periodLabel = b.periodStart
-                      ? new Date(b.periodStart).toLocaleDateString('en-AU', { month: 'short', year: '2-digit' })
+                    const periodLabel = (b.periodStart || b.createdAt)
+                      ? new Date(b.periodStart || b.createdAt).toLocaleDateString('en-AU', { month: 'short', year: '2-digit' })
                       : '?';
                     return (
                       <div key={b.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 0 }}>
@@ -740,8 +740,8 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', height: '120px', marginTop: '12px' }}>
                   {sortedBills.map(b => {
                     const pct = maxCost > 0 ? (b.totalCents / maxCost) * 100 : 0;
-                    const periodLabel = b.periodStart
-                      ? new Date(b.periodStart).toLocaleDateString('en-AU', { month: 'short', year: '2-digit' })
+                    const periodLabel = (b.periodStart || b.createdAt)
+                      ? new Date(b.periodStart || b.createdAt).toLocaleDateString('en-AU', { month: 'short', year: '2-digit' })
                       : '?';
                     return (
                       <div key={b.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 0 }}>
@@ -769,11 +769,16 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
             {bills.length === 0 ? (
               <div className="empty"><p>No bills yet. Import a document or add a bill manually.</p></div>
             ) : (
-              sortedBills.reverse().map(b => (
+              sortedBills.reverse().map(b => {
+                const hasDates = b.periodStart || b.periodEnd;
+                const billLabel = hasDates
+                  ? `${formatDate(b.periodStart)} — ${formatDate(b.periodEnd)}`
+                  : `Bill from ${formatDate(b.createdAt)}`;
+                return (
                 <div key={b.id} className="card bill-card">
                   <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
-                      <span style={{ fontWeight: 600 }}>{formatDate(b.periodStart)} — {formatDate(b.periodEnd)}</span>
+                      <span style={{ fontWeight: 600 }}>{billLabel}</span>
                       {b.usageDays && <span className="muted" style={{ marginLeft: '8px' }}>({b.usageDays} days)</span>}
                     </div>
                     <span className="money" style={{ fontSize: '1.1rem' }}>{money(b.totalCents)}</span>
@@ -796,7 +801,8 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
                     onClick={() => handleDeleteBill(b.id, b.periodStart)}
                   >Delete</button>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
         );
