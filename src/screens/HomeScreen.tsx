@@ -7,15 +7,15 @@ interface Props {
 
 /* ── Category → group colour accent (left stripe) ── */
 const GROUP_COLORS: Record<string, string> = {
-  energy:    '#f59e0b',  // amber
-  water:     '#3b82f6',  // blue
-  telecom:   '#8b5cf6',  // violet
-  insurance: '#10b981',  // emerald
-  housing:   '#ec4899',  // pink
-  transport: '#f97316',  // orange
-  subs:      '#06b6d4',  // cyan
-  finance:   '#6366f1',  // indigo
-  other:     '#64748b',  // slate
+  energy:    '#eab308',  // yellow
+  water:     '#38bdf8',  // sky
+  telecom:   '#a78bfa',  // violet-light
+  insurance: '#34d399',  // emerald
+  housing:   '#f472b6',  // pink
+  transport: '#fb923c',  // orange
+  subs:      '#22d3ee',  // cyan
+  finance:   '#818cf8',  // indigo-light
+  other:     '#94a3b8',  // slate
 };
 
 function groupKeyForCategory(cat: ServiceCategory): string {
@@ -89,44 +89,34 @@ export function HomeScreen({ onNavigate }: Props) {
 
   return (
     <div className="stack">
-      {/* ── Upload action ── */}
-      <div className="card import-card" onClick={() => onNavigate('import-doc')} style={{ cursor: 'pointer' }}>
-        <div className="import-card__header">
-          <span className="import-card__icon">📤</span>
-          <div>
-            <h3 style={{ margin: 0 }}>Upload Document</h3>
-            <p className="muted" style={{ margin: '4px 0 0' }}>
-              Upload a bill, contract, or letter — the service will be created or updated automatically
-            </p>
-          </div>
-          <span style={{ marginLeft: 'auto', fontSize: '1.5rem', opacity: 0.5 }}>→</span>
+      {/* ── Upload bar (compact) ── */}
+      <div className="upload-bar" onClick={() => onNavigate('import-doc')}>
+        <span className="upload-bar__icon">📤</span>
+        <div className="upload-bar__text">
+          <div className="upload-bar__title">Upload Document</div>
+          <div className="upload-bar__desc">Bill, contract, or letter — auto-detected</div>
         </div>
+        <span className="upload-bar__arrow">→</span>
       </div>
 
       {/* Summary strip */}
       {services.length > 0 && (
-        <div className="summary-row" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-          <div className="card summary-card">
+        <div className="summary-strip">
+          <div className="summary-cell">
             <span className="summary-label">Monthly</span>
-            <span className="summary-value">{money(totalMonthly)}</span>
+            <span className="summary-value summary-value--accent">{money(totalMonthly)}</span>
           </div>
-          <div className="card summary-card">
+          <div className="summary-cell">
             <span className="summary-label">Annual</span>
             <span className="summary-value">{money(totalAnnual)}</span>
           </div>
-          <div className="card summary-card">
+          <div className="summary-cell">
             <span className="summary-label">Services</span>
             <span className="summary-value">{services.length}</span>
           </div>
-          <div
-            className="card summary-card"
-            onClick={() => onNavigate('dashboard')}
-            style={{ cursor: 'pointer', borderColor: 'var(--accent)', transition: 'transform 0.1s' }}
-            onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-2px)')}
-            onMouseLeave={e => (e.currentTarget.style.transform = 'none')}
-          >
+          <div className="summary-cell summary-cell--action" onClick={() => onNavigate('dashboard')}>
             <span className="summary-label">Dashboard</span>
-            <span className="summary-value" style={{ fontSize: '1.4rem' }}>📊</span>
+            <span className="summary-value summary-value--accent">📊</span>
           </div>
         </div>
       )}
