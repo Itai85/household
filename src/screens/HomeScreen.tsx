@@ -1,8 +1,66 @@
 import { useApp } from '../store/AppContext';
-import { money, humanise, monthlyAmount, annualAmount, effectiveMonthly, USAGE_CATEGORIES, CATEGORY_GROUPS, type ServiceCategory } from '../types';
+import { money, humanise, monthlyAmount, annualAmount, effectiveMonthly, USAGE_CATEGORIES, CATEGORY_GROUPS, type ServiceCategory, type Service } from '../types';
 
 interface Props {
   onNavigate: (page: string, params?: Record<string, string>) => void;
+}
+
+/* ── Category → group colour accent (left stripe) ── */
+const GROUP_COLORS: Record<string, string> = {
+  energy:    '#f59e0b',  // amber
+  water:     '#3b82f6',  // blue
+  telecom:   '#8b5cf6',  // violet
+  insurance: '#10b981',  // emerald
+  housing:   '#ec4899',  // pink
+  transport: '#f97316',  // orange
+  subs:      '#06b6d4',  // cyan
+  finance:   '#6366f1',  // indigo
+  other:     '#64748b',  // slate
+};
+
+function groupKeyForCategory(cat: ServiceCategory): string {
+  for (const [key, { categories }] of Object.entries(CATEGORY_GROUPS)) {
+    if ((categories as readonly string[]).includes(cat)) return key;
+  }
+  return 'other';
+}
+
+function ServiceRow({ svc, onNavigate }: { svc: Service; onNavigate: Props['onNavigate'] }) {
+  const groupKey = groupKeyForCategory(svc.category);
+  const color = GROUP_COLORS[groupKey] || GROUP_COLORS.other;
+  const isMetered = USAGE_CATEGORIES.has(svc.category) && svc.billAvgMonthlyCents && svc.billAvgMonthlyCents > 0;
+
+  return (
+    <tr
+      className="svc-row"
+      onClick={() => onNavigate('service', { id: svc.id })}
+    >
+      <td className="svc-row__stripe" style={{ '--stripe': color } as React.CSSProperties} />
+      <td className="svc-row__name">
+        <span className="svc-row__nickname">{svc.nickname}</span>
+        {svc.provider && <span className="svc-row__provider">{svc.provider}</span>}
+      </td>
+      <td className="svc-row__cat">
+        <span className="svc-tag" style={{ '--tag-color': color } as React.CSSProperties}>
+          {humanise(svc.category)}
+        </span>
+      </td>
+      <td className="svc-row__amount">
+        {isMetered ? (
+          <>
+            <span className="svc-row__money">~{money(svc.billAvgMonthlyCents!)}</span>
+            <span className="svc-row__freq">/mo avg</span>
+          </>
+        ) : (
+          <>
+            <span className="svc-row__money">{money(svc.amountCents)}</span>
+            <span className="svc-row__freq">/{svc.billingFrequency.toLowerCase().replace('_', ' ')}</span>
+          </>
+        )}
+      </td>
+      <td className="svc-row__arrow">›</td>
+    </tr>
+  );
 }
 
 export function HomeScreen({ onNavigate }: Props) {
@@ -21,9 +79,17 @@ export function HomeScreen({ onNavigate }: Props) {
     byCategory.set(svc.category, list);
   }
 
+  // Sort services by group then name for clean grouping
+  const sorted = [...services].sort((a, b) => {
+    const ga = groupKeyForCategory(a.category);
+    const gb = groupKeyForCategory(b.category);
+    if (ga !== gb) return ga.localeCompare(gb);
+    return a.nickname.localeCompare(b.nickname);
+  });
+
   return (
     <div className="stack">
-      {/* ── Single prominent action: upload document ── */}
+      {/* ── Upload action ── */}
       <div className="card import-card" onClick={() => onNavigate('import-doc')} style={{ cursor: 'pointer' }}>
         <div className="import-card__header">
           <span className="import-card__icon">📤</span>
@@ -37,7 +103,7 @@ export function HomeScreen({ onNavigate }: Props) {
         </div>
       </div>
 
-      {/* Summary cards */}
+      {/* Summary strip */}
       {services.length > 0 && (
         <div className="summary-row" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
           <div className="card summary-card">
@@ -65,60 +131,47 @@ export function HomeScreen({ onNavigate }: Props) {
         </div>
       )}
 
-      {/* Category breakdown */}
-      {services.length > 0 && (
-        <div className="card">
-          <h3>By Category</h3>
-          {Object.values(CATEGORY_GROUPS).map(group => {
-            const groupSvcs = group.categories.flatMap(c => byCategory.get(c) || []);
-            if (groupSvcs.length === 0) return null;
-            const groupMonthly = groupSvcs.reduce((s, svc) => s + effectiveMonthly(svc), 0);
-            return (
-              <div key={group.label} className="category-row">
-                <span>{group.icon} {group.label}</span>
-                <span className="muted">{groupSvcs.length} service{groupSvcs.length > 1 ? 's' : ''}</span>
-                <span className="money">{money(groupMonthly)}/mo</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Service list */}
+      {/* ── Service table ── */}
       {services.length > 0 && (
         <>
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <h2>Services</h2>
             <button className="btn btn--outline btn--small" onClick={() => onNavigate('add-service')}>+ Add Manually</button>
           </div>
-          <div className="service-grid">
-            {services.map(svc => (
-              <div
-                key={svc.id}
-                className="card service-card"
-                onClick={() => onNavigate('service', { id: svc.id })}
-              >
-                <div className="service-card__header">
-                  <span className="service-card__name">{svc.nickname}</span>
-                  <span className="tag">{humanise(svc.category)}</span>
+          <div className="svc-table-wrap">
+            <table className="svc-table">
+              <thead>
+                <tr>
+                  <th className="svc-th svc-th--stripe" />
+                  <th className="svc-th svc-th--name">Service</th>
+                  <th className="svc-th svc-th--cat">Category</th>
+                  <th className="svc-th svc-th--amount">Amount</th>
+                  <th className="svc-th svc-th--arrow" />
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map(svc => (
+                  <ServiceRow key={svc.id} svc={svc} onNavigate={onNavigate} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Category breakdown (compact) */}
+          <div className="cat-breakdown">
+            {Object.entries(CATEGORY_GROUPS).map(([key, group]) => {
+              const groupSvcs = group.categories.flatMap(c => byCategory.get(c) || []);
+              if (groupSvcs.length === 0) return null;
+              const groupMonthly = groupSvcs.reduce((s, svc) => s + effectiveMonthly(svc), 0);
+              const color = GROUP_COLORS[key] || GROUP_COLORS.other;
+              return (
+                <div key={key} className="cat-chip" style={{ '--chip-color': color } as React.CSSProperties}>
+                  <span className="cat-chip__icon">{group.icon}</span>
+                  <span className="cat-chip__label">{group.label}</span>
+                  <span className="cat-chip__amount">{money(groupMonthly)}</span>
                 </div>
-                <div className="service-card__details">
-                  {svc.provider && <span className="muted">{svc.provider}</span>}
-                  {USAGE_CATEGORIES.has(svc.category) && svc.billAvgMonthlyCents && svc.billAvgMonthlyCents > 0 ? (
-                    <>
-                      <span className="money">~{money(svc.billAvgMonthlyCents)}</span>
-                      <span className="muted">/ mo avg</span>
-                      {svc.billCount && <span className="muted" style={{ fontSize: '0.75rem' }}>({svc.billCount} bills)</span>}
-                    </>
-                  ) : (
-                    <>
-                      <span className="money">{money(svc.amountCents)}</span>
-                      <span className="muted">/ {svc.billingFrequency.toLowerCase().replace('_', ' ')}</span>
-                    </>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}
