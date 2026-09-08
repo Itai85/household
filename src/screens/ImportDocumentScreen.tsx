@@ -40,6 +40,51 @@ interface PerFileBill {
   docDate: string;
 }
 
+/** Find the total amount from parsed insights — fuzzy label matching */
+function findTotalAmount(insights: DocInsight[]): string {
+  // Priority order: exact "Total amount" first, then common bill total labels
+  const TOTAL_LABELS_PRIORITY = [
+    /^total amount$/i,
+    /^total$/i,
+    /^total due$/i,
+    /^amount due$/i,
+    /^balance due$/i,
+    /^total charges$/i,
+    /^new charges$/i,
+    /^amount payable$/i,
+    /^amount owing$/i,
+    /^total payable$/i,
+    /^total cost$/i,
+    /^pay this amount$/i,
+    /^total to pay$/i,
+    /^invoice total$/i,
+    /^bill total$/i,
+    /^total bill$/i,
+    /^current charges$/i,
+    /^total.*amount/i,     // catch-all patterns
+    /^amount.*total/i,
+    /total.*due/i,
+    /amount.*due/i,
+    /balance.*due/i,
+  ];
+
+  // Only consider amount-section insights with a dollar value
+  const amountInsights = insights.filter(i =>
+    i.section === 'amount' && /\$[\d,.]+/.test(i.value)
+  );
+
+  for (const pattern of TOTAL_LABELS_PRIORITY) {
+    const match = amountInsights.find(i => pattern.test(i.label));
+    if (match) return match.value.replace(/[$,]/g, '');
+  }
+
+  // Fallback: any high-importance amount field with a $ value
+  const highAmount = amountInsights.find(i => i.importance === 'high');
+  if (highAmount) return highAmount.value.replace(/[$,]/g, '');
+
+  return '';
+}
+
 /** Try to parse a date string into ISO YYYY-MM-DD */
 function parseDateField(raw: string): string {
   if (!raw) return '';
@@ -281,7 +326,7 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
       for (let i = 0; i < allResults.length; i++) {
         const res = allResults[i]!;
         const ins = res.insights;
-        const total = ins.find(x => x.label === 'Total amount')?.value.replace(/[$,]/g, '') || '';
+        const total = findTotalAmount(ins);
         const ps = ins.find(x => x.label === 'Period start')?.value || '';
         const pe = ins.find(x => x.label === 'Period end')?.value || '';
         const usageKwh = ins.find(x => x.label === 'Usage (kWh)')?.value.replace(/[^\d.,]/g, '') || '';
@@ -320,8 +365,8 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
         setBillPeriodStart(lastBill.periodStart);
         setBillPeriodEnd(lastBill.periodEnd);
       } else {
-        const totalIns = mergedInsights.find(i => i.label === 'Total amount');
-        if (totalIns) setBillTotal(totalIns.value.replace(/[$,]/g, ''));
+        const total = findTotalAmount(mergedInsights);
+        if (total) setBillTotal(total);
       }
 
       setPhase('review');
@@ -419,8 +464,8 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
       })));
 
       // Pre-fill bill fields
-      const totalIns = result.insights.find(i => i.label === 'Total amount');
-      if (totalIns) setBillTotal(totalIns.value.replace(/[$,]/g, ''));
+      const totalStr = findTotalAmount(result.insights);
+      if (totalStr) setBillTotal(totalStr);
       const ps = result.insights.find(i => i.label === 'Period start');
       if (ps) setBillPeriodStart(ps.value);
       const pe = result.insights.find(i => i.label === 'Period end');
@@ -495,8 +540,13 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
       'Transport pass',                                     // Public transport
     ];
     const amountRow = enabledRows.find(r => AMOUNT_LABELS.includes(r.label));
+    // Also try any amount-section row that looks like a total
+    const anyAmountTotal = !amountRow
+      ? enabledRows.find(r => r.section === 'amount' && /total|due|payable|amount|balance|charges/i.test(r.label) && /\$?[\d,.]+/.test(r.value))
+      : null;
     const detectedAmountStr = billTotal
       || amountRow?.value.replace(/[$,\/a-zA-Z]/g, '').trim()
+      || anyAmountTotal?.value.replace(/[$,\/a-zA-Z]/g, '').trim()
       || '';
     const detectedAmountCents = detectedAmountStr ? Math.round(parseFloat(detectedAmountStr) * 100) : 0;
 
