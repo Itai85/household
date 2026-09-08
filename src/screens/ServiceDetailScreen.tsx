@@ -468,7 +468,7 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
       )}
 
       {/* Tabs */}
-      <div className="tabs" style={{ overflowX: 'auto' }}>
+      <div className="tabs" style={{ overflowX: 'auto', overflowY: 'hidden' }}>
         {availableTabs.map(t => (
           <button key={t.id} className="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
             <span className="tab__icon">{t.icon}</span>
