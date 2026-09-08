@@ -793,8 +793,8 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
             usageUnit: fb.usageUnit || null,
             usageDays: fb.usageDays ? parseInt(fb.usageDays) : null,
             lineItems: [],
-            notes: '',
-            createdAt: today(),
+            notes: fb.fileName || '',
+            createdAt: fb.docDate || today(),
           });
         }
       } else if (billTotal) {
@@ -808,8 +808,8 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
           usageUnit: null,
           usageDays: null,
           lineItems: [],
-          notes: '',
-          createdAt: today(),
+          notes: files[0]?.name || '',
+          createdAt: docDate || today(),
         });
       }
     }

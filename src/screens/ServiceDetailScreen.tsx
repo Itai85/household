@@ -769,20 +769,17 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
             {bills.length === 0 ? (
               <div className="empty"><p>No bills yet. Import a document or add a bill manually.</p></div>
             ) : (
-              sortedBills.reverse().map(b => {
+              sortedBills.reverse().map((b, idx) => {
                 const hasDates = b.periodStart || b.periodEnd;
-                // Find the source document for this bill (match by createdAt within 60s)
-                const sourceDoc = docs.find(d =>
-                  d.docTypes?.includes('BILL') &&
-                  Math.abs(new Date(d.createdAt).getTime() - new Date(b.createdAt).getTime()) < 60000
-                ) || docs.find(d => d.docDate === b.periodStart);
-                const docName = sourceDoc?.fileName || sourceDoc?.title || '';
+                // Source filename: stored in notes (new bills), or from doc title
+                const sourceFile = b.notes || '';
+                const cleanName = sourceFile
+                  ? sourceFile.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ')
+                  : '';
 
                 const billLabel = hasDates
                   ? `${formatDate(b.periodStart)} — ${formatDate(b.periodEnd)}`
-                  : docName
-                    ? docName.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ')
-                    : `Bill from ${formatDate(b.createdAt)}`;
+                  : cleanName || `Bill #${sortedBills.length - idx}`;
                 return (
                 <div key={b.id} className="card bill-card">
                   <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
@@ -792,8 +789,8 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
                     </div>
                     <span className="money" style={{ fontSize: '1.1rem' }}>{money(b.totalCents)}</span>
                   </div>
-                  {docName && hasDates && (
-                    <div className="muted" style={{ fontSize: '0.78rem', marginTop: '2px' }}>📄 {docName}</div>
+                  {sourceFile && hasDates && (
+                    <div className="muted" style={{ fontSize: '0.78rem', marginTop: '2px' }}>📄 {sourceFile}</div>
                   )}
                   {b.usageQuantity != null && b.usageQuantity > 0 && (
                     <div style={{ display: 'flex', gap: '16px', marginTop: '4px' }}>
