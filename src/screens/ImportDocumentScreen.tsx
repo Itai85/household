@@ -107,6 +107,7 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
   // ─── Pasted text ──────────────────────────────────────────
   const [pastedText, setPastedText] = useState('');
   const [sourceMode, setSourceMode] = useState<'file' | 'text'>('file');
+  const [saving, setSaving] = useState(false);
 
   // ─── Process uploaded file ────────────────────────────────
 
@@ -470,8 +471,11 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
   // ─── Save ─────────────────────────────────────────────────
 
   const handleSave = async () => {
+    if (saving) return;
     if (files.length === 0 && sourceMode === 'file') return;
+    setSaving(true);
 
+    try {
     const enabledRows = rows.filter(r => r.enabled);
     let targetServiceId = matchedServiceId;
 
@@ -760,8 +764,15 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
     }
 
     setPhase('saved');
-    await app.reload();
-    setTimeout(onDone, 800);
+    // Navigate back immediately — reload in background
+    setTimeout(() => {
+      onDone();
+      app.reload().catch(() => {});
+    }, 600);
+    } catch (err) {
+      console.error('Save failed:', err);
+      setSaving(false);
+    }
   };
 
   // ═══════════════════════════════════════════════════════════
@@ -1240,10 +1251,10 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
         <button className="btn" onClick={onDone}>Discard</button>
         <button
           className="btn btn--primary btn--lg"
-          disabled={!matchedServiceId && !createNewService}
+          disabled={saving || (!matchedServiceId && !createNewService)}
           onClick={handleSave}
         >
-          ✅ Save ({enabledCount} fields{files.length > 1 ? ` + ${files.length} docs` : ''}{docTypes.includes('BILL') && perFileBills.length > 1 ? ` + ${perFileBills.length} bills` : docTypes.includes('BILL') && billTotal ? ' + bill' : ''})
+          {saving ? '⏳ Saving…' : `✅ Save (${enabledCount} fields${files.length > 1 ? ` + ${files.length} docs` : ''}${docTypes.includes('BILL') && perFileBills.length > 1 ? ` + ${perFileBills.length} bills` : docTypes.includes('BILL') && billTotal ? ' + bill' : ''})`}
         </button>
       </div>
     </div>
