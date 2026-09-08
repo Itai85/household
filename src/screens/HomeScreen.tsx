@@ -89,35 +89,46 @@ export function HomeScreen({ onNavigate }: Props) {
 
   return (
     <div className="stack">
-      {/* ── Upload bar (compact) ── */}
-      <div className="upload-bar" onClick={() => onNavigate('import-doc')}>
-        <span className="upload-bar__icon">📤</span>
-        <div className="upload-bar__text">
-          <div className="upload-bar__title">Upload Document</div>
-          <div className="upload-bar__desc">Bill, contract, or letter — auto-detected</div>
-        </div>
-        <span className="upload-bar__arrow">→</span>
-      </div>
-
-      {/* Summary strip */}
+      {/* ── Hero strip: KPIs + actions ── */}
       {services.length > 0 && (
-        <div className="summary-strip">
-          <div className="summary-cell">
-            <span className="summary-label">Monthly</span>
-            <span className="summary-value summary-value--accent">{money(totalMonthly)}</span>
+        <div className="hero-strip">
+          <div className="hero-strip__kpis">
+            <div className="kpi kpi--primary">
+              <span className="kpi__value">{money(totalMonthly)}</span>
+              <span className="kpi__label">per month</span>
+            </div>
+            <div className="kpi__divider" />
+            <div className="kpi">
+              <span className="kpi__value">{money(totalAnnual)}</span>
+              <span className="kpi__label">per year</span>
+            </div>
+            <div className="kpi__divider" />
+            <div className="kpi">
+              <span className="kpi__value">{services.length}</span>
+              <span className="kpi__label">services</span>
+            </div>
           </div>
-          <div className="summary-cell">
-            <span className="summary-label">Annual</span>
-            <span className="summary-value">{money(totalAnnual)}</span>
+          <div className="hero-strip__actions">
+            <button className="hero-btn hero-btn--upload" onClick={() => onNavigate('import-doc')}>
+              <span className="hero-btn__icon">📤</span>
+              <span>Upload</span>
+            </button>
+            <button className="hero-btn hero-btn--dash" onClick={() => onNavigate('dashboard')}>
+              <span className="hero-btn__icon">📊</span>
+              <span>Dashboard</span>
+            </button>
           </div>
-          <div className="summary-cell">
-            <span className="summary-label">Services</span>
-            <span className="summary-value">{services.length}</span>
+        </div>
+      )}
+
+      {services.length === 0 && (
+        <div className="upload-bar" onClick={() => onNavigate('import-doc')}>
+          <span className="upload-bar__icon">📤</span>
+          <div className="upload-bar__text">
+            <div className="upload-bar__title">Upload Document</div>
+            <div className="upload-bar__desc">Bill, contract, or letter — auto-detected</div>
           </div>
-          <div className="summary-cell summary-cell--action" onClick={() => onNavigate('dashboard')}>
-            <span className="summary-label">Dashboard</span>
-            <span className="summary-value summary-value--accent">📊</span>
-          </div>
+          <span className="upload-bar__arrow">→</span>
         </div>
       )}
 

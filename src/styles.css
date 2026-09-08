@@ -435,36 +435,129 @@ textarea {
   align-self: flex-start;
 }
 
-/* ─── Summary Strip (unified) ────────────────────────────── */
+/* ─── Hero Strip (KPIs + actions) ────────────────────────── */
 
-.summary-strip {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1px;
-  background: var(--line);
+.hero-strip {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  overflow: hidden;
 }
 
-.summary-cell {
+.hero-strip__kpis {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.kpi {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  padding: 14px 10px;
-  background: var(--surface);
-  text-align: center;
+  gap: 2px;
+  padding: 4px 8px;
 }
 
-.summary-cell--action {
+.kpi--primary .kpi__value {
+  color: var(--accent-bright);
+  font-size: 1.5rem;
+}
+
+.kpi__value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.kpi__label {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.kpi__divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--line);
+  margin: 4px 0;
+  flex-shrink: 0;
+}
+
+.hero-strip__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.hero-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 600;
   cursor: pointer;
-  background: var(--accent-dim);
-  transition: background 0.15s;
-}
-.summary-cell--action:hover {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  transition: all 0.15s;
+  white-space: nowrap;
 }
 
+.hero-btn__icon {
+  font-size: 0.95rem;
+}
+
+.hero-btn--upload {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.hero-btn--upload:hover {
+  background: color-mix(in srgb, var(--accent) 85%, #000);
+}
+
+.hero-btn--dash {
+  background: var(--accent-dim);
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  color: var(--accent-bright);
+}
+.hero-btn--dash:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* Mobile: stack KPIs vertically, buttons in a row */
+@media (max-width: 600px) {
+  .hero-strip {
+    flex-direction: column;
+    padding: 14px;
+    gap: 10px;
+  }
+  .hero-strip__kpis {
+    gap: 0;
+  }
+  .hero-strip__actions {
+    flex-direction: row;
+  }
+  .hero-btn {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+/* ─── Legacy summary classes ─────────────────────────────── */
 .summary-label {
   font-size: 0.65rem;
   font-weight: 600;
@@ -478,10 +571,6 @@ textarea {
   font-weight: 700;
   color: var(--text);
   font-variant-numeric: tabular-nums;
-}
-
-.summary-value--accent {
-  color: var(--accent-bright);
 }
 
 /* ─── Upload Bar (compact) ───────────────────────────────── */
