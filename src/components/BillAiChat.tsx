@@ -280,10 +280,10 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
 }
 
 /** Simple markdown-like formatting for AI responses */
-function formatMessageText(text: string): (string | JSX.Element)[] {
+function formatMessageText(text: string): (string | React.ReactElement)[] {
   // Split into lines and process
   const lines = text.split('\n');
-  const elements: (string | JSX.Element)[] = [];
+  const elements: (string | React.ReactElement)[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
