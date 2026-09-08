@@ -1,4 +1,5 @@
 import { useApp } from '../store/AppContext';
+import { hasAiConfig } from '../platform/storage';
 import { money, humanise, monthlyAmount, annualAmount, effectiveMonthly, USAGE_CATEGORIES, CATEGORY_GROUPS, type ServiceCategory, type Service } from '../types';
 
 interface Props {
@@ -65,6 +66,7 @@ function ServiceRow({ svc, onNavigate }: { svc: Service; onNavigate: Props['onNa
 
 export function HomeScreen({ onNavigate }: Props) {
   const { services, loading } = useApp();
+  const aiConfigured = hasAiConfig();
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 
@@ -89,6 +91,20 @@ export function HomeScreen({ onNavigate }: Props) {
 
   return (
     <div className="stack">
+      {/* ── AI banner: shown until provider is configured ── */}
+      {!aiConfigured && (
+        <div className="ai-banner" onClick={() => onNavigate('settings')}>
+          <span className="ai-banner__icon">✨</span>
+          <div className="ai-banner__body">
+            <div className="ai-banner__title">Connect AI to unlock smart document parsing</div>
+            <div className="ai-banner__desc">
+              Upload a bill or contract and AI extracts provider, amount, dates, and category automatically.
+            </div>
+            <span className="ai-banner__link">Set up AI provider →</span>
+          </div>
+        </div>
+      )}
+
       {/* ── Hero strip: KPIs + actions ── */}
       {services.length > 0 && (
         <div className="hero-strip">
@@ -121,14 +137,48 @@ export function HomeScreen({ onNavigate }: Props) {
         </div>
       )}
 
+      {/* ── Empty state: welcome guide ── */}
       {services.length === 0 && (
-        <div className="upload-bar" onClick={() => onNavigate('import-doc')}>
-          <span className="upload-bar__icon">📤</span>
-          <div className="upload-bar__text">
-            <div className="upload-bar__title">Upload Document</div>
-            <div className="upload-bar__desc">Bill, contract, or letter — auto-detected</div>
+        <div className="welcome-guide">
+          <div className="welcome-guide__header">
+            <div className="welcome-guide__title">Get started in 3 steps</div>
           </div>
-          <span className="upload-bar__arrow">→</span>
+          <div className="welcome-guide__steps">
+            <div
+              className={`welcome-step ${aiConfigured ? 'welcome-step--done' : 'welcome-step--active'}`}
+              onClick={() => !aiConfigured && onNavigate('settings')}
+              style={{ cursor: aiConfigured ? 'default' : 'pointer' }}
+            >
+              <span className="welcome-step__num">{aiConfigured ? '✓' : '1'}</span>
+              <div className="welcome-step__body">
+                <div className="welcome-step__label">Connect AI provider</div>
+                <div className="welcome-step__desc">{aiConfigured ? 'Connected' : 'Anthropic, OpenAI, or Google — bring your API key'}</div>
+              </div>
+            </div>
+            <div className="welcome-step__arrow">→</div>
+            <div
+              className="welcome-step welcome-step--pending"
+              onClick={() => onNavigate('import-doc')}
+              style={{ cursor: 'pointer' }}
+            >
+              <span className="welcome-step__num">2</span>
+              <div className="welcome-step__body">
+                <div className="welcome-step__label">Upload a document</div>
+                <div className="welcome-step__desc">Bill, contract, or letter — AI parses it</div>
+              </div>
+            </div>
+            <div className="welcome-step__arrow">→</div>
+            <div className="welcome-step welcome-step--pending">
+              <span className="welcome-step__num">3</span>
+              <div className="welcome-step__body">
+                <div className="welcome-step__label">Review and save</div>
+                <div className="welcome-step__desc">Edit any field, then save the service</div>
+              </div>
+            </div>
+          </div>
+          <div className="welcome-guide__alt">
+            Or <button className="btn btn--outline btn--small" onClick={() => onNavigate('add-service')}>add a service manually</button>
+          </div>
         </div>
       )}
 
@@ -175,15 +225,6 @@ export function HomeScreen({ onNavigate }: Props) {
             })}
           </div>
         </>
-      )}
-
-      {services.length === 0 && (
-        <div className="empty">
-          <p>No services yet. Upload a document to get started — the service will be created automatically.</p>
-          <p className="muted" style={{ marginTop: '8px' }}>
-            Or <button className="btn btn--outline btn--small" onClick={() => onNavigate('add-service')}>add a service manually</button>
-          </p>
-        </div>
       )}
     </div>
   );

@@ -1030,6 +1030,186 @@ textarea {
   margin-bottom: 0.5rem;
 }
 
+/* ─── AI Banner ─────────────────────────────────────────── */
+
+.ai-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 20px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.ai-banner:hover {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.ai-banner__icon {
+  font-size: 1.6rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.ai-banner__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-banner__title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.ai-banner__desc {
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.ai-banner__link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent-bright);
+  transition: color 0.15s;
+}
+
+.ai-banner:hover .ai-banner__link {
+  color: var(--accent);
+}
+
+/* ─── Welcome Guide (empty state) ───────────────────────── */
+
+.welcome-guide {
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 24px;
+}
+
+.welcome-guide__header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.welcome-guide__title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.welcome-guide__steps {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.welcome-step {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.welcome-step:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.welcome-step--done {
+  border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 6%, var(--surface));
+}
+
+.welcome-step--active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.welcome-step__num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 0.78rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  background: var(--accent-dim);
+  color: var(--accent-bright);
+}
+
+.welcome-step--done .welcome-step__num {
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+  color: var(--ok);
+}
+
+.welcome-step--active .welcome-step__num {
+  background: var(--accent);
+  color: #fff;
+}
+
+.welcome-step__body {
+  min-width: 0;
+}
+
+.welcome-step__label {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.welcome-step__desc {
+  font-size: 0.73rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.welcome-step__arrow {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 1rem;
+  flex-shrink: 0;
+  align-self: center;
+  opacity: 0.5;
+}
+
+.welcome-guide__alt {
+  text-align: center;
+  margin-top: 18px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* Mobile: stack welcome steps vertically */
+@media (max-width: 600px) {
+  .welcome-guide__steps {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .welcome-step__arrow {
+    display: none;
+  }
+  .welcome-guide {
+    padding: 18px;
+  }
+}
+
 /* ─── Empty State ────────────────────────────────────────── */
 
 .empty {
