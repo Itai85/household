@@ -47,39 +47,103 @@ export interface TokenUsage {
 // ─── Document-type specific prompts ─────────────────────────
 // These work across ALL providers — they're just text.
 
-const BILL_PROMPT = `You are parsing an Australian utility/service BILL.
-Extract the billing data as structured JSON. Focus on what matters for bill tracking:
+const BILL_PROMPT = `You are a bill-parsing engine. Given the text of an Australian utility/service bill, extract structured data as JSON.
 
-Return ONLY valid JSON:
+## STRICT RULES
+1. Return ONLY valid JSON — no markdown, no explanation, no text before or after.
+2. Use the EXACT label names listed below. Our system matches on these labels. Wrong labels = lost data.
+3. All dates MUST be YYYY-MM-DD format.
+4. All dollar amounts MUST include $ sign (e.g. "$280.51").
+5. Usage values MUST include the unit (e.g. "1234.5 kWh", "45.2 kL", "890 MJ").
+
+## JSON SCHEMA
 {
-  "provider": "company name",
-  "category": "ELECTRICITY|GAS|WATER|INTERNET|MOBILE|...",
+  "provider": "string — company name",
+  "category": "ELECTRICITY | GAS | WATER | INTERNET | MOBILE | LANDLINE | HOME_INSURANCE | CAR_INSURANCE | HEALTH_INSURANCE | RENT | MORTGAGE | STRATA | COUNCIL_RATES | STREAMING | SOFTWARE | GYM | OTHER",
   "documentTypes": ["BILL"],
   "title": "Provider — Bill Mon YYYY",
-  "docDate": "YYYY-MM-DD",
-  "summary": "2-sentence summary: what period, how much, any notable charges or changes",
+  "docDate": "YYYY-MM-DD — the issue date of the bill",
+  "summary": "2 sentences: billing period, total amount, notable charges or changes",
   "fields": [
-    {"label": "...", "value": "...", "section": "...", "importance": "high|medium|low"}
+    {"label": "EXACT_LABEL", "value": "extracted value", "section": "amount|tariff|date|identifier|contract|clause", "importance": "high|medium|low"}
   ]
 }
 
-MUST extract these if present (use these EXACT label names):
-- section "amount": "Total amount" ($), "GST", "New charges", "Previous balance", "Payment received", "Solar credit"
-- section "amount": "Usage (kWh)" or "Usage (MJ)" or "Usage (kL)" — the number with unit suffix, e.g. "1234.5 kWh"
-- section "amount": "Usage days" — number of days in the billing period
-- section "tariff": ALL rate/tariff entries — supply charge, peak/off-peak/shoulder rates, controlled load, feed-in tariff, discounts. Convert $/kWh to cents/kWh (multiply by 100). Include units (cents/kWh, cents/day, etc.)
-- section "date": "Issue date", "Due date", "Period start" (YYYY-MM-DD), "Period end" (YYYY-MM-DD), "Next meter read"
-- section "identifier": Account number, NMI/MIRN, supply address
-- section "contract": Billing frequency, payment method
-- section "clause": Any price change notices, plan change warnings
+## REQUIRED FIELDS — use these EXACT labels
 
-IMPORTANT label names: Use EXACTLY "Period start", "Period end", "Total amount", "Usage (kWh)", "Usage (MJ)", "Usage (kL)", "Usage days" — these labels must match exactly for the bill to be parsed correctly.
+### section: "amount" (importance: "high")
+| Label              | What to extract                                | Example value    |
+|--------------------|------------------------------------------------|------------------|
+| Total amount       | The final amount due / total charges           | "$280.51"        |
+| GST                | GST component                                  | "$25.50"         |
+| New charges        | New charges this period (before payments)       | "$280.51"        |
+| Previous balance   | Balance carried from previous bill             | "$0.00"          |
+| Payment received   | Payments made since last bill                  | "$150.00"        |
+| Solar credit       | Solar feed-in credit (if any)                  | "$12.30"         |
+| Usage (kWh)        | Electricity usage — MUST include "kWh"         | "1234.5 kWh"     |
+| Usage (MJ)         | Gas usage — MUST include "MJ"                  | "890 MJ"         |
+| Usage (kL)         | Water usage — MUST include "kL"                | "45.2 kL"        |
+| Usage days         | Number of days in the billing period           | "91"             |
 
-For tariff rates from tables with columns like "Qty | Unit Rate | Amount":
-- The Unit Rate column has the tariff rate (often in $/kWh format — convert to cents/kWh)
-- The Amount column is the period charge (NOT the tariff rate)
+### section: "date" (importance: "high")
+| Label              | What to extract                                | Example value    |
+|--------------------|------------------------------------------------|------------------|
+| Period start       | Start of billing period (YYYY-MM-DD)           | "2025-01-15"     |
+| Period end         | End of billing period (YYYY-MM-DD)             | "2025-04-15"     |
+| Issue date         | Date the bill was issued                       | "2025-04-18"     |
+| Due date           | Payment due date                               | "2025-05-02"     |
+| Next meter read    | Next scheduled meter reading                   | "2025-07-15"     |
 
-IMPORTANT: Extract EVERY tariff/rate you can find. These are crucial for tracking cost changes over time.`;
+### section: "tariff" (importance: "medium")
+Extract ALL rates/tariffs found. Use descriptive labels:
+- "General usage rate", "Peak rate", "Off-peak rate", "Shoulder rate", "Controlled load rate"
+- "Supply charge", "Service charge", "Daily supply charge"
+- "Solar feed-in tariff", "Demand charge"
+- "Discount", "Pay on time discount"
+Convert $/kWh to c/kWh (multiply by 100). Always include unit: "28.5 c/kWh", "98.2 c/day"
+
+### section: "identifier"
+- "Account number", "NMI" or "MIRN", "Supply address", "Meter number"
+
+### section: "contract"
+- "Billing frequency", "Payment method", "Plan name", "Tariff type"
+
+### section: "clause"
+- Price change notices, plan expiry warnings, important terms
+
+## EXAMPLE OUTPUT
+{
+  "provider": "Origin Energy",
+  "category": "ELECTRICITY",
+  "documentTypes": ["BILL"],
+  "title": "Origin Energy — Bill Apr 2025",
+  "docDate": "2025-04-18",
+  "summary": "Electricity bill for 15 Jan – 15 Apr 2025. Total $280.51 for 1,234 kWh over 91 days. Includes $12.30 solar credit.",
+  "fields": [
+    {"label": "Total amount", "value": "$280.51", "section": "amount", "importance": "high"},
+    {"label": "Usage (kWh)", "value": "1234.5 kWh", "section": "amount", "importance": "high"},
+    {"label": "Usage days", "value": "91", "section": "amount", "importance": "high"},
+    {"label": "Period start", "value": "2025-01-15", "section": "date", "importance": "high"},
+    {"label": "Period end", "value": "2025-04-15", "section": "date", "importance": "high"},
+    {"label": "Due date", "value": "2025-05-02", "section": "date", "importance": "high"},
+    {"label": "General usage rate", "value": "28.5 c/kWh", "section": "tariff", "importance": "medium"},
+    {"label": "Controlled load rate", "value": "18.2 c/kWh", "section": "tariff", "importance": "medium"},
+    {"label": "Supply charge", "value": "98.2 c/day", "section": "tariff", "importance": "medium"},
+    {"label": "Solar feed-in tariff", "value": "5.0 c/kWh", "section": "tariff", "importance": "medium"},
+    {"label": "Solar credit", "value": "$12.30", "section": "amount", "importance": "medium"},
+    {"label": "Account number", "value": "1234567890", "section": "identifier", "importance": "medium"},
+    {"label": "NMI", "value": "6305012345", "section": "identifier", "importance": "medium"},
+    {"label": "Pay on time discount", "value": "12%", "section": "tariff", "importance": "medium"}
+  ]
+}
+
+IMPORTANT REMINDERS:
+- "Total amount" = the final amount owed, NOT "New charges" or partial totals
+- "Usage (kWh)" MUST appear for electricity bills. Look for "Total kWh", "Electricity used", "Total usage" etc.
+- "Usage days" = days in billing period. Look for "X days", "billing period: X days", "supply period" etc.
+- "Period start" and "Period end" = the billing period dates, NOT the issue/due dates
+- For tariff tables: the "Unit Rate" column = tariff rate, the "Amount" column = period charge (not tariff)
+- Extract EVERY tariff/rate you find — these are crucial for cost tracking`;
 
 const INSURANCE_PROMPT = `You are parsing an Australian INSURANCE document (policy, certificate, PDS, or renewal).
 Extract coverage and premium data as structured JSON.
