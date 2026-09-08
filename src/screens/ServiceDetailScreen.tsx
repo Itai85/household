@@ -8,6 +8,7 @@ import { getEffectiveAiConfig } from '../platform/storage';
 import type { Service, Bill, Document as Doc, TariffEntry } from '../types';
 import { money, humanise, formatDate, monthlyAmount, FREQUENCY_LABELS, DOC_TYPE_LABELS, today, USAGE_CATEGORIES, USAGE_UNITS } from '../types';
 import { forecastNextBill, type ForecastResult } from '../platform/forecast';
+import { BillAiChat } from '../components/BillAiChat';
 
 interface Props {
   serviceId: string;
@@ -47,6 +48,9 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
 
   // Bill comparison
   const [compareIds, setCompareIds] = useState<[string, string] | null>(null);
+
+  // AI Chat
+  const [aiChatOpen, setAiChatOpen] = useState(false);
 
   const load = useCallback(async () => {
     const s = app.services.find(s => s.id === serviceId);
@@ -1209,6 +1213,29 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
             ))
           )}
         </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════
+          AI Chat Panel (all tabs)
+          ═══════════════════════════════════════════════════════ */}
+      {aiChatOpen && (
+        <BillAiChat
+          service={svc}
+          bills={bills}
+          open={aiChatOpen}
+          onClose={() => setAiChatOpen(false)}
+        />
+      )}
+
+      {/* Floating AI button */}
+      {!aiChatOpen && (
+        <button
+          className="ai-chat-fab"
+          onClick={() => setAiChatOpen(true)}
+          title="Ask AI about your bills"
+        >
+          ✨
+        </button>
       )}
 
       {/* ─── Confirm Bar (sticky) ──────────────────────────── */}
