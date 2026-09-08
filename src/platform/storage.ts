@@ -325,7 +325,7 @@ export async function deleteFile(id: string): Promise<void> {
   await db.delete('files', id);
 }
 
-// ─── Settings (localStorage — stays local per device) ──────
+// ─── Settings (localStorage + Supabase cloud sync) ─────────
 
 const AI_CONFIG_KEY = 'household_ai_config';
 const TOKEN_USAGE_KEY = 'household_token_usage';
@@ -334,7 +334,7 @@ const TOKEN_USAGE_KEY = 'household_token_usage';
 const LEGACY_API_KEY = 'household_anthropic_api_key';
 const LEGACY_MODEL_PREF = 'household_model_preference';
 
-/** Get AI provider configuration. Migrates from legacy single-key format if needed. */
+/** Get AI provider configuration (from localStorage cache). */
 export function getAiConfig(): AiConfig | null {
   try {
     const raw = localStorage.getItem(AI_CONFIG_KEY);
@@ -359,11 +359,56 @@ export function getAiConfig(): AiConfig | null {
   return null;
 }
 
+/** Save AI config to localStorage AND Supabase (if cloud mode). */
 export function setAiConfig(config: AiConfig | null): void {
   if (config) {
     localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(config));
   } else {
     localStorage.removeItem(AI_CONFIG_KEY);
+  }
+  // Persist to cloud in background
+  if (isCloud()) {
+    _saveAiConfigToCloud(config).catch(err => console.warn('Failed to save AI config to cloud:', err));
+  }
+}
+
+/** Save AI config to Supabase user_settings table */
+async function _saveAiConfigToCloud(config: AiConfig | null): Promise<void> {
+  const sb = getSupabase();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return;
+
+  if (config && config.apiKey) {
+    await sb.from('user_settings').upsert({
+      user_id: user.id,
+      ai_provider_id: config.providerId,
+      ai_api_key: config.apiKey,
+      ai_model_id: config.modelId,
+      ai_base_url: config.baseUrl || null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id' });
+  } else {
+    await sb.from('user_settings').delete().eq('user_id', user.id);
+  }
+}
+
+/** Load AI config from Supabase and cache in localStorage. Call on login. */
+export async function syncAiConfigFromCloud(): Promise<void> {
+  if (!isCloud()) return;
+  try {
+    const sb = getSupabase();
+    const { data } = await sb.from('user_settings').select('*').maybeSingle();
+    if (data && data.ai_api_key) {
+      const config: AiConfig = {
+        providerId: data.ai_provider_id || 'anthropic',
+        apiKey: data.ai_api_key,
+        modelId: data.ai_model_id || 'auto',
+        baseUrl: data.ai_base_url || undefined,
+      };
+      localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(config));
+    }
+  } catch (err) {
+    console.warn('Failed to sync AI config from cloud:', err);
   }
 }
 

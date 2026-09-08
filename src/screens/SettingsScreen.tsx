@@ -136,7 +136,7 @@ export function SettingsScreen({ onBack }: Props) {
         <p className="muted" style={{ marginBottom: '12px' }}>
           {proxyStatus === 'available' && !existing?.apiKey
             ? 'AI is already connected via the server. You can optionally override it with your own API key below.'
-            : 'Connect your AI to enable smart document parsing. The AI understands your bills, extracts tariffs, and tracks changes — the site just orchestrates and stores the results.'}
+            : 'Connect your AI to enable smart document parsing. Upload a bill or contract and AI will extract provider, amount, dates, and category automatically.'}
         </p>
 
         {/* Provider selector */}
@@ -152,6 +152,53 @@ export function SettingsScreen({ onBack }: Props) {
             </button>
           ))}
         </div>
+
+        {/* How to get an API key — provider-specific guide */}
+        {!existing?.apiKey && providerId !== 'openai-compatible' && (
+          <div style={{
+            padding: '14px 16px',
+            borderRadius: 'var(--radius-sm)',
+            background: 'var(--surface-2)',
+            border: '1px solid var(--line)',
+            marginBottom: '16px',
+            fontSize: '0.85rem',
+            lineHeight: 1.6,
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: '8px' }}>
+              📋 How to get a {provider.label.split(' (')[0]} API key
+              {providerId === 'gemini' && <span style={{ marginLeft: '8px', fontSize: '0.75rem', padding: '2px 8px', borderRadius: '12px', background: 'color-mix(in srgb, var(--ok) 12%, transparent)', color: 'var(--ok)' }}>Free</span>}
+            </div>
+            {providerId === 'anthropic' && (
+              <ol style={{ paddingLeft: '18px', margin: 0, color: 'var(--text)' }}>
+                <li>Go to <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>console.anthropic.com</a></li>
+                <li>Sign up or log in</li>
+                <li>Click <strong>Create Key</strong> and copy it (starts with <code style={{ fontSize: '0.8rem' }}>sk-ant-</code>)</li>
+                <li>Paste below</li>
+              </ol>
+            )}
+            {providerId === 'openai' && (
+              <ol style={{ paddingLeft: '18px', margin: 0, color: 'var(--text)' }}>
+                <li>Go to <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>platform.openai.com/api-keys</a></li>
+                <li>Sign up or log in</li>
+                <li>Click <strong>Create new secret key</strong> and copy it (starts with <code style={{ fontSize: '0.8rem' }}>sk-</code>)</li>
+                <li>Paste below</li>
+              </ol>
+            )}
+            {providerId === 'gemini' && (
+              <ol style={{ paddingLeft: '18px', margin: 0, color: 'var(--text)' }}>
+                <li>Go to <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>aistudio.google.com/apikey</a></li>
+                <li>Sign in with your Google account</li>
+                <li>Click <strong>Create API key</strong> — no credit card needed</li>
+                <li>Copy the key (starts with <code style={{ fontSize: '0.8rem' }}>AIza</code>) and paste below</li>
+              </ol>
+            )}
+            <p className="muted" style={{ marginTop: '8px', fontSize: '0.78rem' }}>
+              {providerId === 'gemini'
+                ? 'Google Gemini offers a generous free tier (15 requests/minute). No payment required.'
+                : `Typical cost: ~$0.001–0.005 per document parsed.`}
+            </p>
+          </div>
+        )}
 
         {/* Compatible presets (only for openai-compatible) */}
         {providerId === 'openai-compatible' && (

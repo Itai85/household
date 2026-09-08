@@ -10,7 +10,7 @@ import { AddBillScreen } from './screens/AddBillScreen';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { LoginScreen } from './screens/LoginScreen';
-import { setCloudMode, setProxyAvailable } from './platform/storage';
+import { setCloudMode, setProxyAvailable, syncAiConfigFromCloud } from './platform/storage';
 import { isProxyAvailable, resetProxyCache } from './platform/ai-providers';
 import './styles.css';
 
@@ -144,9 +144,10 @@ function AuthGate() {
     setCloudMode(isCloudMode && !!user);
   }, [isCloudMode, user]);
 
-  // Check server-side AI proxy availability after login
+  // Sync AI config from cloud + check proxy on login
   useEffect(() => {
     if (isCloudMode && user) {
+      syncAiConfigFromCloud();
       resetProxyCache();
       isProxyAvailable().then(ok => setProxyAvailable(ok));
     } else {
