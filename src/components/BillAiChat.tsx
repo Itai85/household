@@ -28,13 +28,14 @@ interface Props {
   service: Service;
   bills: Bill[];
   open: boolean;
+  openCompare?: boolean;
   onClose: () => void;
 }
 
 let _msgId = 0;
 const nextId = () => `msg_${++_msgId}_${Date.now()}`;
 
-export function BillAiChat({ service, bills, open, onClose }: Props) {
+export function BillAiChat({ service, bills, open, openCompare, onClose }: Props) {
   // #4: Load persisted chat history
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadChatHistory(service.id));
   const [input, setInput] = useState('');
@@ -42,7 +43,9 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
   const [status, setStatus] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const [showCompare, setShowCompare] = useState(false);
+  const [showCompare, setShowCompare] = useState(openCompare || false);
+  const [ratings, setRatings] = useState<Record<string, 'up' | 'down'>>({});
+  const [copied, setCopied] = useState(false);
   // #3: Structured compare form state
   const [compareForm, setCompareForm] = useState({
     planName: '',
@@ -196,7 +199,32 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
     setMessages([]);
     setFollowUps([]);
     setStatus('');
+    setRatings({});
   }, [service.id]);
+
+  // Export chat to clipboard
+  const handleExport = useCallback(async () => {
+    const lines = messages.map(m => {
+      const role = m.role === 'user' ? '👤 You' : '✨ AI';
+      return `${role}:\n${m.text}\n`;
+    });
+    const text = `Chat — ${service.nickname}\n${'═'.repeat(40)}\n\n${lines.join('\n')}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* ignore */ }
+  }, [messages, service.nickname]);
+
+  // Rate an AI response
+  const handleRate = useCallback((msgId: string, rating: 'up' | 'down') => {
+    setRatings(prev => {
+      const next = { ...prev };
+      if (next[msgId] === rating) { delete next[msgId]; } // toggle off
+      else { next[msgId] = rating; }
+      return next;
+    });
+  }, []);
 
   // Check if compare form has at least one filled field
   const compareHasData = useMemo(() => {
@@ -217,6 +245,12 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
           <span className="ai-chat-title">Ask AI</span>
         </div>
         <div className="ai-chat-header__right">
+          {/* Export button */}
+          {messages.length > 0 && (
+            <button className="ai-chat-clear" onClick={handleExport} title={copied ? 'Copied!' : 'Copy chat'}>
+              {copied ? '✅' : '📋'}
+            </button>
+          )}
           {/* #5: Clear button */}
           {messages.length > 0 && (
             <button className="ai-chat-clear" onClick={handleClear} title="Clear chat">🗑</button>
@@ -266,6 +300,21 @@ export function BillAiChat({ service, bills, open, onClose }: Props) {
             {msg.role === 'assistant' && <span className="ai-chat-avatar">✨</span>}
             <div className="ai-chat-bubble__text">
               <MarkdownContent text={msg.text} />
+              {/* Thumbs up/down for AI responses */}
+              {msg.role === 'assistant' && !msg.text.startsWith('❌') && (
+                <div className="ai-chat-rating">
+                  <button
+                    className={`ai-chat-rate ${ratings[msg.id] === 'up' ? 'ai-chat-rate--active' : ''}`}
+                    onClick={() => handleRate(msg.id, 'up')}
+                    title="Good answer"
+                  >👍</button>
+                  <button
+                    className={`ai-chat-rate ${ratings[msg.id] === 'down' ? 'ai-chat-rate--active' : ''}`}
+                    onClick={() => handleRate(msg.id, 'down')}
+                    title="Bad answer"
+                  >👎</button>
+                </div>
+              )}
             </div>
           </div>
         ))}

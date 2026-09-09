@@ -51,6 +51,7 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
 
   // AI Chat
   const [aiChatOpen, setAiChatOpen] = useState(false);
+  const [aiChatCompare, setAiChatCompare] = useState(false);
 
   const load = useCallback(async () => {
     const s = app.services.find(s => s.id === serviceId);
@@ -675,6 +676,22 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
             })()}
           </div>
 
+          {/* Market comparison CTA */}
+          <div className="card" style={{ border: '1px dashed var(--accent)', textAlign: 'center', padding: '20px 16px' }}>
+            <div style={{ fontSize: '1.5rem', marginBottom: '6px' }}>📊</div>
+            <h3 style={{ margin: '0 0 6px' }}>Is your plan competitive?</h3>
+            <p className="muted" style={{ fontSize: '0.85rem', margin: '0 0 12px' }}>
+              Compare your current plan against a new offer using your actual usage data
+            </p>
+            <button
+              className="btn btn--primary"
+              style={{ fontSize: '1rem', padding: '10px 24px' }}
+              onClick={() => { setAiChatCompare(true); setAiChatOpen(true); }}
+            >
+              🔍 Compare Plan Against Market
+            </button>
+          </div>
+
           {svc.notes && (
             <div className="card">
               <h3>Notes</h3>
@@ -1223,7 +1240,8 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
           service={svc}
           bills={bills}
           open={aiChatOpen}
-          onClose={() => setAiChatOpen(false)}
+          openCompare={aiChatCompare}
+          onClose={() => { setAiChatOpen(false); setAiChatCompare(false); }}
         />
       )}
 
