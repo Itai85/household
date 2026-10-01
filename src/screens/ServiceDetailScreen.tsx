@@ -516,78 +516,7 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
           {renderKeyDates()}
 
           {/* Reminders & Expiry */}
-          <div className="detail-section" style={{
-            border: '1px solid var(--accent)',
-            background: 'color-mix(in srgb, var(--accent) 4%, var(--surface))',
-            padding: '16px', borderRadius: 'var(--radius)',
-          }}>
-            <h4 className="detail-section__title" style={{ margin: '0 0 10px' }}>🔔 Reminders</h4>
-            {(svc.contractEndDate || svc.benefitEndDate) && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '12px' }}>
-                {svc.contractEndDate && (() => {
-                  const d = daysUntil(svc.contractEndDate);
-                  const urgent = d !== null && d <= 30;
-                  const expired = d !== null && d < 0;
-                  return (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 500 }}>📝 Contract ends</span>
-                      <span style={{
-                        fontWeight: 600,
-                        color: expired ? 'var(--bad, #f44336)' : urgent ? 'var(--warn)' : 'var(--text)',
-                      }}>
-                        {formatDate(svc.contractEndDate)}
-                        {d !== null && <span style={{ marginLeft: '6px', fontSize: '0.85rem' }}>
-                          ({expired ? `${Math.abs(d)}d ago` : `${d} days`})
-                        </span>}
-                      </span>
-                    </div>
-                  );
-                })()}
-                {svc.benefitEndDate && (() => {
-                  const d = daysUntil(svc.benefitEndDate);
-                  const urgent = d !== null && d <= 30;
-                  const expired = d !== null && d < 0;
-                  return (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 500 }}>🛡️ Benefit ends</span>
-                      <span style={{
-                        fontWeight: 600,
-                        color: expired ? 'var(--bad, #f44336)' : urgent ? 'var(--warn)' : 'var(--text)',
-                      }}>
-                        {formatDate(svc.benefitEndDate)}
-                        {d !== null && <span style={{ marginLeft: '6px', fontSize: '0.85rem' }}>
-                          ({expired ? `${Math.abs(d)}d ago` : `${d} days`})
-                        </span>}
-                      </span>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-            <div className="chips" style={{ gap: '6px' }}>
-              {(Object.entries(REMINDER_LABELS) as [ReminderFrequency, string][]).map(([key, label]) => (
-                <button
-                  key={key}
-                  className="chip"
-                  aria-selected={(svc.reminderFrequency || 'BEFORE_EXPIRY') === key}
-                  onClick={async () => {
-                    const updated = { ...svc, reminderFrequency: key as ReminderFrequency, updatedAt: today() };
-                    setSvc(updated);
-                    await app.saveService(updated);
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <p className="muted" style={{ fontSize: '0.78rem', marginTop: '6px' }}>
-              {(svc.reminderFrequency || 'BEFORE_EXPIRY') === 'BEFORE_EXPIRY'
-                ? 'Alert before contract/benefit expires.'
-                : (svc.reminderFrequency || 'BEFORE_EXPIRY') === 'NONE'
-                ? 'No reminders for this service.'
-                : `${REMINDER_LABELS[svc.reminderFrequency || 'BEFORE_EXPIRY']} reminder.`}
-            </p>
-          </div>
+          <ReminderSection svc={svc} setSvc={setSvc} app={app} tariffHistory={tariffHistory} />
 
           {/* Quick glance: top rates + cost */}
           {hasEntries('tariff') && (
@@ -1347,6 +1276,185 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── Reminder Section Component ── */
+
+function ReminderSection({ svc, setSvc, app, tariffHistory }: {
+  svc: Service;
+  setSvc: (s: Service) => void;
+  app: ReturnType<typeof useApp>;
+  tariffHistory: TariffEntry[];
+}) {
+  const [editingDate, setEditingDate] = useState<'contract' | 'benefit' | null>(null);
+  const [dateValue, setDateValue] = useState('');
+
+  const hasDate = !!(svc.contractEndDate || svc.benefitEndDate);
+  const isInsurance = INSURANCE_CATEGORIES.has(svc.category);
+
+  const autoRenewEntry = tariffHistory.find(e =>
+    /auto.?renew/i.test(e.label) && !e.endDate
+  );
+  const isAutoRenew = autoRenewEntry
+    ? /yes|true|enabled|automatic/i.test(autoRenewEntry.value)
+    : null;
+
+  const saveDate = async (field: 'contractEndDate' | 'benefitEndDate', value: string) => {
+    const updated = { ...svc, [field]: value, updatedAt: today() };
+    setSvc(updated);
+    await app.saveService(updated);
+    setEditingDate(null);
+    setDateValue('');
+  };
+
+  const renderDateRow = (label: string, icon: string, dateStr: string, field: 'contractEndDate' | 'benefitEndDate') => {
+    const d = daysUntil(dateStr);
+    const urgent = d !== null && d <= 30;
+    const expired = d !== null && d < 0;
+    return (
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+        <span style={{ fontWeight: 500 }}>{icon} {label}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{
+            fontWeight: 600, fontSize: '1.05rem',
+            color: expired ? 'var(--bad, #f44336)' : urgent ? 'var(--warn)' : 'var(--text)',
+          }}>
+            {formatDate(dateStr)}
+            {d !== null && <span style={{ marginLeft: '6px', fontSize: '0.85rem', fontWeight: 500 }}>
+              ({expired ? `expired ${Math.abs(d)}d ago` : `${d} days left`})
+            </span>}
+          </span>
+          <button
+            className="btn btn--small btn--outline"
+            style={{ padding: '2px 8px', fontSize: '0.75rem' }}
+            onClick={() => { setEditingDate(field === 'contractEndDate' ? 'contract' : 'benefit'); setDateValue(dateStr); }}
+          >✏️</button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="detail-section" style={{
+      border: '1px solid var(--accent)',
+      background: 'color-mix(in srgb, var(--accent) 4%, var(--surface))',
+      padding: '16px', borderRadius: 'var(--radius)',
+    }}>
+      <h4 className="detail-section__title" style={{ margin: '0 0 10px' }}>🔔 Reminders</h4>
+
+      {/* Date rows */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+        {svc.contractEndDate && renderDateRow(
+          isInsurance ? 'Policy ends' : 'Contract ends',
+          isInsurance ? '🛡️' : '📝',
+          svc.contractEndDate,
+          'contractEndDate',
+        )}
+        {svc.benefitEndDate && renderDateRow('Benefit ends', '🎁', svc.benefitEndDate, 'benefitEndDate')}
+
+        {/* Auto-renewal status */}
+        {isAutoRenew !== null && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '6px 10px', borderRadius: '6px',
+            background: isAutoRenew
+              ? 'color-mix(in srgb, var(--ok) 10%, transparent)'
+              : 'color-mix(in srgb, var(--warn) 10%, transparent)',
+            fontSize: '0.85rem',
+          }}>
+            <span>{isAutoRenew ? '🔄' : '⚠️'}</span>
+            <span style={{ fontWeight: 500 }}>
+              {isAutoRenew ? 'Auto-renewal: On' : 'Auto-renewal: Off'}
+            </span>
+            {autoRenewEntry && <span className="muted" style={{ fontSize: '0.78rem' }}>({autoRenewEntry.value})</span>}
+          </div>
+        )}
+
+        {/* No date — warning + add button */}
+        {!hasDate && editingDate === null && (
+          <div style={{
+            padding: '12px', borderRadius: '8px',
+            background: 'color-mix(in srgb, var(--warn) 8%, transparent)',
+            border: '1px dashed var(--warn)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <span>⚠️</span>
+              <span style={{ fontWeight: 600, color: 'var(--warn)', fontSize: '0.9rem' }}>
+                No end/renewal date set
+              </span>
+            </div>
+            <p className="muted" style={{ fontSize: '0.82rem', margin: '0 0 10px' }}>
+              Add a date to get reminders before your {isInsurance ? 'policy' : 'contract'} expires or renews.
+            </p>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button className="btn btn--small btn--outline" onClick={() => { setEditingDate('contract'); setDateValue(''); }}>
+                + {isInsurance ? 'Policy end date' : 'Contract end date'}
+              </button>
+              <button className="btn btn--small btn--outline" onClick={() => { setEditingDate('benefit'); setDateValue(''); }}>
+                + Benefit end date
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Inline date editor */}
+        {editingDate && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '8px',
+            padding: '10px', borderRadius: '8px', background: 'var(--surface-2)',
+          }}>
+            <label style={{ fontWeight: 500, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+              {editingDate === 'contract'
+                ? (isInsurance ? '🛡️ Policy ends' : '📝 Contract ends')
+                : '🎁 Benefit ends'}
+            </label>
+            <input
+              type="date"
+              className="input"
+              value={dateValue}
+              onChange={e => setDateValue(e.target.value)}
+              style={{ flex: 1, maxWidth: '180px' }}
+              autoFocus
+            />
+            <button
+              className="btn btn--small btn--primary"
+              disabled={!dateValue}
+              onClick={() => saveDate(
+                editingDate === 'contract' ? 'contractEndDate' : 'benefitEndDate',
+                dateValue,
+              )}
+            >Save</button>
+            <button className="btn btn--small" onClick={() => setEditingDate(null)}>✕</button>
+          </div>
+        )}
+      </div>
+
+      {/* Reminder frequency */}
+      <div className="chips" style={{ gap: '6px' }}>
+        {(Object.entries(REMINDER_LABELS) as [ReminderFrequency, string][]).map(([key, label]) => (
+          <button
+            key={key}
+            className="chip"
+            aria-selected={(svc.reminderFrequency || 'BEFORE_EXPIRY') === key}
+            onClick={async () => {
+              const updated = { ...svc, reminderFrequency: key as ReminderFrequency, updatedAt: today() };
+              setSvc(updated);
+              await app.saveService(updated);
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="muted" style={{ fontSize: '0.78rem', marginTop: '6px' }}>
+        {(svc.reminderFrequency || 'BEFORE_EXPIRY') === 'BEFORE_EXPIRY'
+          ? hasDate ? 'Alert before expiry date.' : 'Set a date above to get expiry alerts.'
+          : (svc.reminderFrequency || 'BEFORE_EXPIRY') === 'NONE'
+          ? 'No reminders for this service.'
+          : `${REMINDER_LABELS[svc.reminderFrequency || 'BEFORE_EXPIRY']} reminder.`}
+      </p>
     </div>
   );
 }
