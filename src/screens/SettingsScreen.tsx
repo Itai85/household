@@ -503,7 +503,7 @@ function NotificationSettings() {
     <div className="card">
       <h3>🔔 Expiry Notifications</h3>
       <p className="muted" style={{ marginBottom: '12px' }}>
-        Get alerted before your services, contracts, or policies expire. Alerts appear on the home screen automatically. Enable email notifications to get reminders sent to your inbox.
+        Get email reminders about your services. Choose which services to alert and how often on each service's page.
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -519,36 +519,16 @@ function NotificationSettings() {
         </label>
 
         {prefs.enabled && (
-          <>
-            {/* Email */}
-            <div className="field">
-              <label>Email address</label>
-              <input
-                className="input"
-                type="email"
-                value={prefs.email}
-                onChange={e => update({ email: e.target.value })}
-                placeholder="your@email.com"
-              />
-            </div>
-
-            {/* Days before */}
-            <div className="field">
-              <label>Notify me this many days before expiry</label>
-              <div className="chips" style={{ gap: '6px' }}>
-                {[14, 30, 60, 90].map(d => (
-                  <button
-                    key={d}
-                    className="chip"
-                    aria-selected={prefs.daysBefore === d}
-                    onClick={() => update({ daysBefore: d })}
-                  >
-                    {d} days
-                  </button>
-                ))}
-              </div>
-            </div>
-          </>
+          <div className="field">
+            <label>Email address</label>
+            <input
+              className="input"
+              type="email"
+              value={prefs.email}
+              onChange={e => update({ email: e.target.value })}
+              placeholder="your@email.com"
+            />
+          </div>
         )}
 
         <div className="row" style={{ gap: '8px', marginTop: '4px' }}>
@@ -559,7 +539,7 @@ function NotificationSettings() {
       </div>
 
       <p className="muted" style={{ marginTop: '10px', fontSize: '0.78rem' }}>
-        Home screen alerts are always active when services have expiry dates set. Email notifications require a connected email address above.
+        Home screen alerts are always active. Email notifications require a connected email address above. Reminder frequency is set per service.
       </p>
     </div>
   );

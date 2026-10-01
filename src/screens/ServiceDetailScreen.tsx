@@ -515,6 +515,80 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
           {/* Key Dates */}
           {renderKeyDates()}
 
+          {/* Reminders & Expiry */}
+          <div className="detail-section" style={{
+            border: '1px solid var(--accent)',
+            background: 'color-mix(in srgb, var(--accent) 4%, var(--surface))',
+            padding: '16px', borderRadius: 'var(--radius)',
+          }}>
+            <h4 className="detail-section__title" style={{ margin: '0 0 10px' }}>🔔 Reminders</h4>
+            {(svc.contractEndDate || svc.benefitEndDate) && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '12px' }}>
+                {svc.contractEndDate && (() => {
+                  const d = daysUntil(svc.contractEndDate);
+                  const urgent = d !== null && d <= 30;
+                  const expired = d !== null && d < 0;
+                  return (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 500 }}>📝 Contract ends</span>
+                      <span style={{
+                        fontWeight: 600,
+                        color: expired ? 'var(--bad, #f44336)' : urgent ? 'var(--warn)' : 'var(--text)',
+                      }}>
+                        {formatDate(svc.contractEndDate)}
+                        {d !== null && <span style={{ marginLeft: '6px', fontSize: '0.85rem' }}>
+                          ({expired ? `${Math.abs(d)}d ago` : `${d} days`})
+                        </span>}
+                      </span>
+                    </div>
+                  );
+                })()}
+                {svc.benefitEndDate && (() => {
+                  const d = daysUntil(svc.benefitEndDate);
+                  const urgent = d !== null && d <= 30;
+                  const expired = d !== null && d < 0;
+                  return (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 500 }}>🛡️ Benefit ends</span>
+                      <span style={{
+                        fontWeight: 600,
+                        color: expired ? 'var(--bad, #f44336)' : urgent ? 'var(--warn)' : 'var(--text)',
+                      }}>
+                        {formatDate(svc.benefitEndDate)}
+                        {d !== null && <span style={{ marginLeft: '6px', fontSize: '0.85rem' }}>
+                          ({expired ? `${Math.abs(d)}d ago` : `${d} days`})
+                        </span>}
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+            <div className="chips" style={{ gap: '6px' }}>
+              {(Object.entries(REMINDER_LABELS) as [ReminderFrequency, string][]).map(([key, label]) => (
+                <button
+                  key={key}
+                  className="chip"
+                  aria-selected={(svc.reminderFrequency || 'BEFORE_EXPIRY') === key}
+                  onClick={async () => {
+                    const updated = { ...svc, reminderFrequency: key as ReminderFrequency, updatedAt: today() };
+                    setSvc(updated);
+                    await app.saveService(updated);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="muted" style={{ fontSize: '0.78rem', marginTop: '6px' }}>
+              {(svc.reminderFrequency || 'BEFORE_EXPIRY') === 'BEFORE_EXPIRY'
+                ? 'Alert before contract/benefit expires.'
+                : (svc.reminderFrequency || 'BEFORE_EXPIRY') === 'NONE'
+                ? 'No reminders for this service.'
+                : `${REMINDER_LABELS[svc.reminderFrequency || 'BEFORE_EXPIRY']} reminder.`}
+            </p>
+          </div>
+
           {/* Quick glance: top rates + cost */}
           {hasEntries('tariff') && (
             <div className="detail-section">
@@ -1150,34 +1224,6 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
 
           {/* Key dates (also in overview) */}
           {renderKeyDates()}
-
-          {/* Reminder frequency */}
-          <div className="detail-section">
-            <h4 className="detail-section__title">🔔 Reminders</h4>
-            <div className="chips" style={{ gap: '6px' }}>
-              {(Object.entries(REMINDER_LABELS) as [ReminderFrequency, string][]).map(([key, label]) => (
-                <button
-                  key={key}
-                  className="chip"
-                  aria-selected={(svc.reminderFrequency || 'BEFORE_EXPIRY') === key}
-                  onClick={async () => {
-                    const updated = { ...svc, reminderFrequency: key as ReminderFrequency, updatedAt: today() };
-                    setSvc(updated);
-                    await app.saveService(updated);
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <p className="muted" style={{ fontSize: '0.78rem', marginTop: '6px' }}>
-              {(svc.reminderFrequency || 'BEFORE_EXPIRY') === 'BEFORE_EXPIRY'
-                ? 'You\'ll be alerted on the home screen when this contract or benefit is about to end.'
-                : (svc.reminderFrequency || 'BEFORE_EXPIRY') === 'NONE'
-                ? 'No reminders set for this service.'
-                : `A ${REMINDER_LABELS[svc.reminderFrequency || 'BEFORE_EXPIRY'].toLowerCase()} reminder will appear on the home screen.`}
-            </p>
-          </div>
 
           {/* Exit & Disconnection — prominently displayed */}
           {exitInfo.length > 0 ? (
