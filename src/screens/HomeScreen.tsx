@@ -1,6 +1,6 @@
 import { useApp } from '../store/AppContext';
-import { hasAiConfig } from '../platform/storage';
-import { money, humanise, monthlyAmount, annualAmount, effectiveMonthly, USAGE_CATEGORIES, CATEGORY_GROUPS, type ServiceCategory, type Service } from '../types';
+import { hasAiConfig, getNotificationPrefs, setNotificationPrefs } from '../platform/storage';
+import { money, humanise, monthlyAmount, annualAmount, effectiveMonthly, daysUntil, formatDate, USAGE_CATEGORIES, CATEGORY_GROUPS, type ServiceCategory, type Service } from '../types';
 
 interface Props {
   onNavigate: (page: string, params?: Record<string, string>) => void;
@@ -182,6 +182,9 @@ export function HomeScreen({ onNavigate }: Props) {
         </div>
       )}
 
+      {/* ── Expiry alerts ── */}
+      {services.length > 0 && <ExpiryAlerts services={services} onNavigate={onNavigate} />}
+
       {/* ── Service table ── */}
       {services.length > 0 && (
         <>
@@ -226,6 +229,128 @@ export function HomeScreen({ onNavigate }: Props) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/* ── Expiry Alerts Component ── */
+
+interface ExpiryItem {
+  serviceId: string;
+  nickname: string;
+  provider: string;
+  type: 'contract' | 'benefit' | 'reminder';
+  label: string;
+  date: string;
+  days: number;
+}
+
+function ExpiryAlerts({ services, onNavigate }: { services: Service[]; onNavigate: Props['onNavigate'] }) {
+  const [, forceUpdate] = useState(0);
+  const notifPrefs = getNotificationPrefs();
+  const threshold = notifPrefs.daysBefore || 60;
+
+  const items: ExpiryItem[] = [];
+  for (const svc of services) {
+    const freq = svc.reminderFrequency || 'BEFORE_EXPIRY';
+    if (freq === 'NONE') continue;
+
+    if (freq !== 'BEFORE_EXPIRY') {
+      items.push({
+        serviceId: svc.id, nickname: svc.nickname, provider: svc.provider,
+        type: 'reminder',
+        label: freq === 'WEEKLY' ? 'Weekly reminder' : freq === 'MONTHLY' ? 'Monthly reminder' : 'Quarterly reminder',
+        date: '', days: 0,
+      });
+      continue;
+    }
+
+    if (svc.contractEndDate) {
+      const d = daysUntil(svc.contractEndDate);
+      if (d !== null && d >= -7 && d <= threshold) {
+        items.push({ serviceId: svc.id, nickname: svc.nickname, provider: svc.provider, type: 'contract', label: 'Contract', date: svc.contractEndDate, days: d });
+      }
+    }
+    if (svc.benefitEndDate) {
+      const d = daysUntil(svc.benefitEndDate);
+      if (d !== null && d >= -7 && d <= threshold) {
+        items.push({ serviceId: svc.id, nickname: svc.nickname, provider: svc.provider, type: 'benefit', label: 'Benefit', date: svc.benefitEndDate, days: d });
+      }
+    }
+  }
+
+  if (items.length === 0) return null;
+
+  items.sort((a, b) => {
+    if (a.type === 'reminder' && b.type !== 'reminder') return 1;
+    if (a.type !== 'reminder' && b.type === 'reminder') return -1;
+    return a.days - b.days;
+  });
+
+  const dismissed = new Set(notifPrefs.dismissed || []);
+  const visible = items.filter(it => !dismissed.has(`${it.serviceId}-${it.type}`));
+  if (visible.length === 0) return null;
+
+  const dismiss = (item: ExpiryItem) => {
+    const prefs = getNotificationPrefs();
+    prefs.dismissed = [...(prefs.dismissed || []), `${item.serviceId}-${item.type}`];
+    setNotificationPrefs(prefs);
+    forceUpdate(n => n + 1);
+  };
+
+  return (
+    <div className="expiry-alerts">
+      <div className="expiry-alerts__header">
+        <span className="expiry-alerts__icon">🔔</span>
+        <span className="expiry-alerts__title">Upcoming Expirations</span>
+        <span className="expiry-alerts__count">{visible.length}</span>
+      </div>
+      <div className="expiry-alerts__list">
+        {visible.map(item => {
+          const isReminder = item.type === 'reminder';
+          const urgent = !isReminder && item.days <= 7;
+          const expired = !isReminder && item.days < 0;
+          const severity = isReminder ? 'info' : expired ? 'expired' : urgent ? 'urgent' : item.days <= 30 ? 'warning' : 'info';
+          return (
+            <div
+              key={`${item.serviceId}-${item.type}`}
+              className={`expiry-alert expiry-alert--${severity}`}
+              onClick={() => onNavigate('service', { id: item.serviceId })}
+            >
+              <div className="expiry-alert__main">
+                <span className="expiry-alert__badge">
+                  {isReminder ? '🔔' : expired ? '⛔' : urgent ? '🔴' : item.days <= 30 ? '🟡' : '🔵'}
+                </span>
+                <div className="expiry-alert__info">
+                  <span className="expiry-alert__name">{item.nickname}</span>
+                  {item.provider && <span className="expiry-alert__provider">{item.provider}</span>}
+                </div>
+                <div className="expiry-alert__detail">
+                  <span className="expiry-alert__type">{item.label}</span>
+                  {item.date && <span className="expiry-alert__date">{formatDate(item.date)}</span>}
+                </div>
+                <div className="expiry-alert__days">
+                  {isReminder
+                    ? <span className="expiry-alert__days-text">{item.label}</span>
+                    : expired
+                    ? <span className="expiry-alert__days-text expiry-alert__days-text--expired">Expired {Math.abs(item.days)}d ago</span>
+                    : item.days === 0
+                    ? <span className="expiry-alert__days-text expiry-alert__days-text--today">Today!</span>
+                    : <span className={`expiry-alert__days-text ${urgent ? 'expiry-alert__days-text--urgent' : ''}`}>{item.days} days</span>
+                  }
+                </div>
+              </div>
+              <button
+                className="expiry-alert__dismiss"
+                title="Dismiss"
+                onClick={e => { e.stopPropagation(); dismiss(item); }}
+              >
+                ✕
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

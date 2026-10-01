@@ -93,6 +93,8 @@ const BILL_PROMPT = `You are a bill-parsing engine. Given the text of an Austral
 | Issue date         | Date the bill was issued                       | "2025-04-18"     |
 | Due date           | Payment due date                               | "2025-05-02"     |
 | Next meter read    | Next scheduled meter reading                   | "2025-07-15"     |
+| Contract end date  | Contract/plan expiry date (if mentioned)        | "2025-12-31"     |
+| Benefit end date   | Benefit/discount end date (if mentioned)        | "2025-12-31"     |
 
 ### section: "tariff" (importance: "medium")
 Extract ALL rates/tariffs found. Use descriptive labels:
@@ -162,7 +164,8 @@ Return ONLY valid JSON:
 MUST extract:
 - section "tariff": Premium (total, car, extras), excess (basic, voluntary, age, young driver), sum insured/agreed value, window glass excess
 - section "coverage": EVERY coverage item with its status (Included/Not included/Optional/Restricted) or limit. For health: list each clinical category. For car: comprehensive/third-party, hire car, windscreen, roadside, new car replacement, personal effects
-- section "contract": Policy period (start/end), cover type, product name, payment frequency, cooling-off period, membership type
+- section "contract": Cover type, product name, payment frequency, cooling-off period, membership type
+- section "date": Use EXACT labels: "Start date" (YYYY-MM-DD), "Policy end date" (YYYY-MM-DD when policy expires), "Benefit end date" (YYYY-MM-DD)
 - section "identifier": Policy number, vehicle details, registration
 - section "clause": Auto-renewal terms, exclusions, conditions, claim process notes
 
@@ -185,10 +188,10 @@ Return ONLY valid JSON:
 
 MUST extract:
 - section "tariff": ALL rates and prices — plan price, usage rates, supply charges, discounts, data allowance, call inclusions. Include units.
-- section "contract": Contract length, benefit period, exit/cancellation fee, cooling-off, notice period, billing frequency, payment method, start/end dates
+- section "contract": Contract length, benefit period, exit/cancellation fee, cooling-off, notice period, billing frequency, payment method
 - section "clause": Auto-renewal, price variation clauses, switching warnings, grandfathering, hardship policy
 - section "identifier": Account number, NMI/MIRN, supply address
-- section "date": Contract start, end, benefit end, next review`;
+- section "date": Use EXACT labels: "Start date" (YYYY-MM-DD), "Contract end date" (YYYY-MM-DD), "Benefit end date" (YYYY-MM-DD), "Next review date" (YYYY-MM-DD)`;
 
 const GENERIC_PROMPT = `You are parsing an Australian household document (bill, contract, letter, receipt, etc.).
 Extract ALL structured data as JSON.

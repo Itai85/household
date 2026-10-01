@@ -3,8 +3,8 @@ import { v4 as uuid } from 'uuid';
 import { useApp } from '../store/AppContext';
 import { saveService as storageSave } from '../platform/storage';
 import {
-  CATEGORY_GROUPS, FREQUENCY_LABELS,
-  type Service, type ServiceCategory, type BillingFrequency,
+  CATEGORY_GROUPS, FREQUENCY_LABELS, REMINDER_LABELS,
+  type Service, type ServiceCategory, type BillingFrequency, type ReminderFrequency,
   today, humanise,
 } from '../types';
 
@@ -186,6 +186,29 @@ export function AddServiceScreen({ editId, onDone }: Props) {
               <input type="date" value={svc.contractEndDate} onChange={e => set('contractEndDate', e.target.value)} />
             </div>
           )}
+          <div className="field">
+            <label>Reminders</label>
+            <div className="chips" style={{ gap: '6px' }}>
+              {(Object.entries(REMINDER_LABELS) as [ReminderFrequency, string][]).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className="chip"
+                  aria-selected={(svc.reminderFrequency || 'BEFORE_EXPIRY') === key}
+                  onClick={() => set('reminderFrequency', key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
+              {(svc.reminderFrequency || 'BEFORE_EXPIRY') === 'BEFORE_EXPIRY'
+                ? 'You\'ll be alerted when the contract or benefit period is about to end.'
+                : (svc.reminderFrequency || 'BEFORE_EXPIRY') === 'NONE'
+                ? 'No reminders for this service.'
+                : `You'll get a ${REMINDER_LABELS[svc.reminderFrequency || 'BEFORE_EXPIRY'].toLowerCase()} reminder about this service.`}
+            </p>
+          </div>
           {fields.showExitFee && (
             <div className="field">
               <label>Exit Fee ($)</label>

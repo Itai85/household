@@ -5,8 +5,8 @@ import { parseDocument } from '../platform/document-parser';
 import { extractText } from '../platform/document-reader';
 import { llmParse, type LlmParseResult } from '../platform/llm-parser';
 import { getEffectiveAiConfig } from '../platform/storage';
-import type { Service, Bill, Document as Doc, TariffEntry } from '../types';
-import { money, humanise, formatDate, monthlyAmount, FREQUENCY_LABELS, DOC_TYPE_LABELS, today, USAGE_CATEGORIES, USAGE_UNITS } from '../types';
+import type { Service, Bill, Document as Doc, TariffEntry, ReminderFrequency } from '../types';
+import { money, humanise, formatDate, monthlyAmount, daysUntil, FREQUENCY_LABELS, DOC_TYPE_LABELS, REMINDER_LABELS, today, USAGE_CATEGORIES, USAGE_UNITS } from '../types';
 import { forecastNextBill, type ForecastResult } from '../platform/forecast';
 import { BillAiChat } from '../components/BillAiChat';
 
@@ -224,11 +224,6 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
   const currentEntries = (section: string) => entriesFor(section).filter(e => !e.endDate);
   const endedEntries = (section: string) => entriesFor(section).filter(e => e.endDate);
   const hasEntries = (section: string) => entriesFor(section).length > 0;
-
-  const daysUntil = (date: string) => {
-    if (!date) return null;
-    return Math.ceil((new Date(date).getTime() - Date.now()) / 86400000);
-  };
 
   // Build available tabs
   const availableTabs: { id: Tab; label: string; icon: string; count?: number }[] = [
@@ -1155,6 +1150,34 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
 
           {/* Key dates (also in overview) */}
           {renderKeyDates()}
+
+          {/* Reminder frequency */}
+          <div className="detail-section">
+            <h4 className="detail-section__title">🔔 Reminders</h4>
+            <div className="chips" style={{ gap: '6px' }}>
+              {(Object.entries(REMINDER_LABELS) as [ReminderFrequency, string][]).map(([key, label]) => (
+                <button
+                  key={key}
+                  className="chip"
+                  aria-selected={(svc.reminderFrequency || 'BEFORE_EXPIRY') === key}
+                  onClick={async () => {
+                    const updated = { ...svc, reminderFrequency: key as ReminderFrequency, updatedAt: today() };
+                    setSvc(updated);
+                    await app.saveService(updated);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="muted" style={{ fontSize: '0.78rem', marginTop: '6px' }}>
+              {(svc.reminderFrequency || 'BEFORE_EXPIRY') === 'BEFORE_EXPIRY'
+                ? 'You\'ll be alerted on the home screen when this contract or benefit is about to end.'
+                : (svc.reminderFrequency || 'BEFORE_EXPIRY') === 'NONE'
+                ? 'No reminders set for this service.'
+                : `A ${REMINDER_LABELS[svc.reminderFrequency || 'BEFORE_EXPIRY'].toLowerCase()} reminder will appear on the home screen.`}
+            </p>
+          </div>
 
           {/* Exit & Disconnection — prominently displayed */}
           {exitInfo.length > 0 ? (

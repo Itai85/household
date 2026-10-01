@@ -600,9 +600,9 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
         status: 'ACTIVE',
         amountCents: detectedAmountCents,
         billingFrequency: defaultFrequency,
-        startDate: '',
-        benefitEndDate: '',
-        contractEndDate: '',
+        startDate: enabledRows.find(r => /start\s*date/i.test(r.label))?.value || '',
+        benefitEndDate: enabledRows.find(r => /benefit\s*(end|period)|policy\s*(end|expir)/i.test(r.label))?.value || '',
+        contractEndDate: enabledRows.find(r => /contract\s*(end|expir)|lease\s*end|end\s*date/i.test(r.label))?.value || '',
         exitFeeCents: 0,
         accountNumber: enabledRows.find(r => r.label === 'Account number')?.value
           || enabledRows.find(r => r.label === 'Policy number')?.value || '',

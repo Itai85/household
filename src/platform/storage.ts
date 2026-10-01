@@ -515,6 +515,67 @@ export function resetTokenUsage(): void {
   localStorage.removeItem(TOKEN_USAGE_KEY);
 }
 
+// ─── Notification preferences ─────────────────────────────
+
+export interface NotificationPrefs {
+  enabled: boolean;
+  email: string;
+  daysBefore: number;
+  lastChecked: string;
+  dismissed: string[];
+}
+
+const NOTIF_PREFS_KEY = 'household_notification_prefs';
+
+export function getNotificationPrefs(): NotificationPrefs {
+  try {
+    const raw = localStorage.getItem(NOTIF_PREFS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return { enabled: false, email: '', daysBefore: 30, lastChecked: '', dismissed: [] };
+}
+
+export function setNotificationPrefs(prefs: NotificationPrefs): void {
+  localStorage.setItem(NOTIF_PREFS_KEY, JSON.stringify(prefs));
+  if (isCloud()) {
+    _saveNotifPrefsToCloud(prefs).catch(err => console.warn('Failed to save notification prefs to cloud:', err));
+  }
+}
+
+async function _saveNotifPrefsToCloud(prefs: NotificationPrefs): Promise<void> {
+  const sb = getSupabase();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return;
+  await sb.from('user_settings').upsert({
+    user_id: user.id,
+    notif_enabled: prefs.enabled,
+    notif_email: prefs.email,
+    notif_days_before: prefs.daysBefore,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'user_id' });
+}
+
+export async function syncNotifPrefsFromCloud(): Promise<void> {
+  if (!isCloud()) return;
+  try {
+    const sb = getSupabase();
+    const { data } = await sb.from('user_settings').select('*').maybeSingle();
+    if (data && data.notif_enabled !== undefined) {
+      const local = getNotificationPrefs();
+      const prefs: NotificationPrefs = {
+        enabled: data.notif_enabled ?? false,
+        email: data.notif_email || '',
+        daysBefore: data.notif_days_before ?? 30,
+        lastChecked: local.lastChecked,
+        dismissed: local.dismissed,
+      };
+      localStorage.setItem(NOTIF_PREFS_KEY, JSON.stringify(prefs));
+    }
+  } catch (err) {
+    console.warn('Failed to sync notification prefs from cloud:', err);
+  }
+}
+
 // ─── Nuke everything ───────────────────────────────────────
 
 export async function eraseAll(): Promise<void> {

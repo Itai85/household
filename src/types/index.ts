@@ -48,6 +48,16 @@ export const FREQUENCY_MONTHS: Record<BillingFrequency, number> = {
 
 export type ServiceStatus = 'ACTIVE' | 'PENDING' | 'CANCELLED' | 'EXPIRED';
 
+export type ReminderFrequency = 'NONE' | 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'BEFORE_EXPIRY';
+
+export const REMINDER_LABELS: Record<ReminderFrequency, string> = {
+  NONE: 'Off',
+  WEEKLY: 'Weekly',
+  MONTHLY: 'Monthly',
+  QUARTERLY: 'Quarterly',
+  BEFORE_EXPIRY: 'Before Expiry',
+};
+
 export type DocumentType = 'BILL' | 'CONTRACT' | 'PDS' | 'RENEWAL_NOTICE' | 'CORRESPONDENCE' | 'RECEIPT' | 'CERTIFICATE';
 
 export const DOC_TYPE_LABELS: Record<DocumentType, { label: string; icon: string }> = {
@@ -83,6 +93,8 @@ export interface Service {
   tariffHistory: TariffEntry[];  // rate changes over time
   billAvgMonthlyCents?: number;  // computed: average monthly cost from bill history
   billCount?: number;            // computed: number of bills on record
+  reminderFrequency?: ReminderFrequency;
+  lastReminderSent?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -190,6 +202,11 @@ export function formatDate(iso: string): string {
 
 export function today(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+export function daysUntil(iso: string): number | null {
+  if (!iso) return null;
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000);
 }
 
 /**

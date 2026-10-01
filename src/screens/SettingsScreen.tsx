@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { eraseAll, getAiConfig, setAiConfig, getTokenUsage, resetTokenUsage, isUsingProxy, setProxyAvailable, isUsingDemoKey } from '../platform/storage';
+import { eraseAll, getAiConfig, setAiConfig, getTokenUsage, resetTokenUsage, isUsingProxy, setProxyAvailable, isUsingDemoKey, getNotificationPrefs, setNotificationPrefs } from '../platform/storage';
 import { PROVIDERS, COMPATIBLE_PRESETS, isProxyAvailable, type ProviderId, type AiConfig } from '../platform/ai-providers';
 import { useAuth } from '../store/AuthContext';
 
@@ -426,6 +426,9 @@ export function SettingsScreen({ onBack }: Props) {
         </div>
       )}
 
+      {/* ─── Expiry Notifications ─────────────────────────── */}
+      <NotificationSettings />
+
       {/* ─── Data Storage ──────────────────────────────────── */}
       <div className="card">
         <h3>🔒 Data Storage</h3>
@@ -478,6 +481,86 @@ export function SettingsScreen({ onBack }: Props) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function NotificationSettings() {
+  const [prefs, setPrefs] = useState(getNotificationPrefs);
+  const [saved, setSaved] = useState(false);
+
+  const update = (patch: Partial<typeof prefs>) => {
+    setPrefs(p => ({ ...p, ...patch }));
+  };
+
+  const handleSave = () => {
+    setNotificationPrefs(prefs);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  return (
+    <div className="card">
+      <h3>🔔 Expiry Notifications</h3>
+      <p className="muted" style={{ marginBottom: '12px' }}>
+        Get alerted before your services, contracts, or policies expire. Alerts appear on the home screen automatically. Enable email notifications to get reminders sent to your inbox.
+      </p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        {/* Enable toggle */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={prefs.enabled}
+            onChange={e => update({ enabled: e.target.checked })}
+            style={{ width: 18, height: 18, accentColor: 'var(--accent)' }}
+          />
+          <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Enable email notifications</span>
+        </label>
+
+        {prefs.enabled && (
+          <>
+            {/* Email */}
+            <div className="field">
+              <label>Email address</label>
+              <input
+                className="input"
+                type="email"
+                value={prefs.email}
+                onChange={e => update({ email: e.target.value })}
+                placeholder="your@email.com"
+              />
+            </div>
+
+            {/* Days before */}
+            <div className="field">
+              <label>Notify me this many days before expiry</label>
+              <div className="chips" style={{ gap: '6px' }}>
+                {[14, 30, 60, 90].map(d => (
+                  <button
+                    key={d}
+                    className="chip"
+                    aria-selected={prefs.daysBefore === d}
+                    onClick={() => update({ daysBefore: d })}
+                  >
+                    {d} days
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="row" style={{ gap: '8px', marginTop: '4px' }}>
+          <button className="btn btn--primary" onClick={handleSave}>
+            {saved ? '✅ Saved' : '💾 Save'}
+          </button>
+        </div>
+      </div>
+
+      <p className="muted" style={{ marginTop: '10px', fontSize: '0.78rem' }}>
+        Home screen alerts are always active when services have expiry dates set. Email notifications require a connected email address above.
+      </p>
     </div>
   );
 }
