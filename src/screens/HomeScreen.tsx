@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { hasAiConfig, getNotificationPrefs, setNotificationPrefs } from '../platform/storage';
 import { money, humanise, monthlyAmount, annualAmount, effectiveMonthly, daysUntil, formatDate, USAGE_CATEGORIES, CATEGORY_GROUPS, type ServiceCategory, type Service } from '../types';
@@ -295,7 +296,7 @@ function ExpiryAlerts({ services, onNavigate }: { services: Service[]; onNavigat
     const prefs = getNotificationPrefs();
     prefs.dismissed = [...(prefs.dismissed || []), `${item.serviceId}-${item.type}`];
     setNotificationPrefs(prefs);
-    forceUpdate(n => n + 1);
+    forceUpdate((n: number) => n + 1);
   };
 
   return (
