@@ -59,7 +59,7 @@ jobs:
 
           // 2. Get services for those users that have expiry dates
           const servicesRes = await fetch(
-            `${SUPABASE_URL}/rest/v1/services?select=id,nickname,provider,category,contract_end_date,benefit_end_date,reminder_frequency,last_reminder_sent,user_id&or=(contract_end_date.neq.,benefit_end_date.neq.,reminder_frequency.in.(WEEKLY,MONTHLY,QUARTERLY))`,
+            `${SUPABASE_URL}/rest/v1/services?select=id,nickname,provider,category,contract_end_date,benefit_end_date,reminder_frequency,last_reminder_sent,user_id,status&or=(contract_end_date.neq.,benefit_end_date.neq.,reminder_frequency.in.(WEEKLY,MONTHLY,QUARTERLY))`,
             { headers }
           );
           const services = await servicesRes.json();
@@ -90,6 +90,7 @@ jobs:
           for (const svc of services) {
             const prefs = notifPrefs[svc.user_id];
             if (!prefs) continue;
+            if (svc.status === 'CANCELLED' || svc.status === 'EXPIRED') continue;
 
             const freq = svc.reminder_frequency || 'BEFORE_EXPIRY';
             const sinceLast = daysSinceLast(svc.last_reminder_sent);

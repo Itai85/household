@@ -253,6 +253,7 @@ function ExpiryAlerts({ services, onNavigate }: { services: Service[]; onNavigat
 
   const items: ExpiryItem[] = [];
   for (const svc of services) {
+    if (svc.status === 'CANCELLED' || svc.status === 'EXPIRED') continue;
     const freq = svc.reminderFrequency || 'BEFORE_EXPIRY';
     if (freq === 'NONE') continue;
 
