@@ -6,7 +6,7 @@ import { extractText } from '../platform/document-reader';
 import { llmParse, type LlmParseResult } from '../platform/llm-parser';
 import { getEffectiveAiConfig } from '../platform/storage';
 import type { Service, Bill, Document as Doc, TariffEntry, ReminderFrequency } from '../types';
-import { money, humanise, formatDate, monthlyAmount, daysUntil, FREQUENCY_LABELS, DOC_TYPE_LABELS, REMINDER_LABELS, today, USAGE_CATEGORIES, USAGE_UNITS } from '../types';
+import { money, humanise, formatDate, monthlyAmount, daysUntil, effectiveEndDate, missingInfo, FREQUENCY_LABELS, DOC_TYPE_LABELS, REMINDER_LABELS, today, USAGE_CATEGORIES, USAGE_UNITS } from '../types';
 import { forecastNextBill, type ForecastResult } from '../platform/forecast';
 import { BillAiChat } from '../components/BillAiChat';
 
@@ -1299,59 +1299,99 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
 
 /* ── Reminder Section Component ── */
 
+const TERM_OPTIONS = [
+  { months: 1, label: 'Monthly (rolling)' },
+  { months: 12, label: '12 months' },
+  { months: 24, label: '24 months' },
+  { months: 36, label: '36 months' },
+];
+
+const ordinal = (n: number) => {
+  const suffix = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (suffix[(v - 20) % 10] || suffix[v] || suffix[0]!);
+};
+
+type EditKind = 'start' | 'contract' | 'benefit';
+const FIELD_OF = { start: 'startDate', contract: 'contractEndDate', benefit: 'benefitEndDate' } as const;
+
 function ReminderSection({ svc, setSvc, app, tariffHistory }: {
   svc: Service;
   setSvc: (s: Service) => void;
   app: ReturnType<typeof useApp>;
   tariffHistory: TariffEntry[];
 }) {
-  const [editingDate, setEditingDate] = useState<'contract' | 'benefit' | null>(null);
+  const [editing, setEditing] = useState<EditKind | null>(null);
   const [dateValue, setDateValue] = useState('');
 
-  const hasDate = !!(svc.contractEndDate || svc.benefitEndDate);
   const isInsurance = INSURANCE_CATEGORIES.has(svc.category);
+  const endNoun = isInsurance ? 'Policy' : svc.category === 'RENT' ? 'Lease' : 'Contract';
+  const monthly = svc.contractTermMonths === 1;
+  const end = effectiveEndDate({ ...svc, tariffHistory });
+  const missing = missingInfo(svc);
 
-  const autoRenewEntry = tariffHistory.find(e =>
-    /auto.?renew/i.test(e.label) && !e.endDate
-  );
-  const isAutoRenew = autoRenewEntry
-    ? /yes|true|enabled|automatic/i.test(autoRenewEntry.value)
-    : null;
+  const autoRenewEntry = tariffHistory.find(e => /auto.?renew/i.test(e.label) && !e.endDate);
+  const isAutoRenew = autoRenewEntry ? /yes|true|enabled|automatic/i.test(autoRenewEntry.value) : null;
 
-  const saveDate = async (field: 'contractEndDate' | 'benefitEndDate', value: string) => {
-    const updated = { ...svc, [field]: value, updatedAt: today() };
+  const [saveError, setSaveError] = useState('');
+
+  const persist = async (patch: Partial<Service>): Promise<boolean> => {
+    const updated = { ...svc, ...patch, updatedAt: today() };
+    setSaveError('');
     setSvc(updated);
-    await app.saveService(updated);
-    setEditingDate(null);
+    try {
+      await app.saveService(updated);
+      return true;
+    } catch (err) {
+      setSvc(svc);
+      setSaveError(err && typeof err === 'object' && 'message' in err ? String((err as { message: unknown }).message) : String(err));
+      return false;
+    }
+  };
+
+  const saveDate = async (kind: EditKind, value: string) => {
+    if (!(await persist({ [FIELD_OF[kind]]: value }))) return;
+    setEditing(null);
     setDateValue('');
   };
 
-  const renderDateRow = (label: string, icon: string, dateStr: string, field: 'contractEndDate' | 'benefitEndDate') => {
-    const d = daysUntil(dateStr);
-    const urgent = d !== null && d <= 30;
-    const expired = d !== null && d < 0;
-    return (
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
-        <span style={{ fontWeight: 500 }}>{icon} {label}</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{
-            fontWeight: 600, fontSize: '1.05rem',
-            color: expired ? 'var(--bad, #f44336)' : urgent ? 'var(--warn)' : 'var(--text)',
-          }}>
-            {formatDate(dateStr)}
-            {d !== null && <span style={{ marginLeft: '6px', fontSize: '0.85rem', fontWeight: 500 }}>
-              ({expired ? `expired ${Math.abs(d)}d ago` : `${d} days left`})
-            </span>}
-          </span>
-          <button
-            className="btn btn--small btn--outline"
-            style={{ padding: '2px 8px', fontSize: '0.75rem' }}
-            onClick={() => { setEditingDate(field === 'contractEndDate' ? 'contract' : 'benefit'); setDateValue(dateStr); }}
-          >✏️</button>
-        </div>
-      </div>
-    );
+  const setTerm = async (months: number) => {
+    const patch: Partial<Service> = { contractTermMonths: months };
+    if (months === 1) patch.reminderFrequency = 'NONE';
+    else if ((svc.reminderFrequency || 'BEFORE_EXPIRY') === 'NONE') patch.reminderFrequency = 'BEFORE_EXPIRY';
+    await persist(patch);
   };
+
+  const startEdit = (kind: EditKind, current: string) => { setEditing(kind); setDateValue(current); };
+
+  const row = (label: string, right: React.ReactNode) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+      <span style={{ fontWeight: 500 }}>{label}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>{right}</div>
+    </div>
+  );
+  const pencil = (kind: EditKind, current: string) => (
+    <button className="btn btn--small btn--outline" style={{ padding: '2px 8px', fontSize: '0.75rem' }} onClick={() => startEdit(kind, current)}>✏️</button>
+  );
+
+  const dayText = (iso: string) => {
+    const d = daysUntil(iso);
+    if (d === null) return null;
+    return <span style={{ marginLeft: '6px', fontSize: '0.85rem', fontWeight: 500 }}>({d < 0 ? `expired ${Math.abs(d)}d ago` : `${d} days left`})</span>;
+  };
+  const dateColor = (iso: string) => {
+    const d = daysUntil(iso);
+    return d !== null && d < 0 ? 'var(--bad, #f44336)' : d !== null && d <= 30 ? 'var(--warn)' : 'var(--text)';
+  };
+
+  const sourceTag = !end ? ''
+    : end.source === 'calculated' ? `calculated: ${svc.contractTermMonths} months from ${formatDate(svc.startDate)}`
+    : end.source === 'document' ? `from your document: ${end.detail}`
+    : 'entered by you';
+
+  const editingValue = editing ? (svc[FIELD_OF[editing]] as string) : '';
+  const editingLabel = editing === 'start' ? 'Start date' : editing === 'benefit' ? 'Benefit ends' : `${endNoun} ends`;
+  const startIsIso = /^\d{4}-\d{2}-\d{2}$/.test(svc.startDate || '');
 
   return (
     <div className="detail-section" style={{
@@ -1359,113 +1399,86 @@ function ReminderSection({ svc, setSvc, app, tariffHistory }: {
       background: 'color-mix(in srgb, var(--accent) 4%, var(--surface))',
       padding: '16px', borderRadius: 'var(--radius)',
     }}>
-      <h4 className="detail-section__title" style={{ margin: '0 0 10px' }}>🔔 Reminders</h4>
+      <h4 className="detail-section__title" style={{ margin: '0 0 10px' }}>🔔 Contract &amp; reminders</h4>
 
-      {/* Date rows */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-        {svc.contractEndDate && renderDateRow(
-          isInsurance ? 'Policy ends' : 'Contract ends',
-          isInsurance ? '🛡️' : '📝',
-          svc.contractEndDate,
-          'contractEndDate',
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '12px' }}>
+        <div>
+          <div style={{ fontWeight: 500, marginBottom: '6px' }}>Contract length</div>
+          <div className="chips" style={{ gap: '6px' }}>
+            {TERM_OPTIONS.map(o => (
+              <button key={o.months} className="chip" aria-selected={svc.contractTermMonths === o.months} onClick={() => setTerm(o.months)}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {row('Start date', svc.startDate
+          ? <><span style={{ fontWeight: 600 }}>{formatDate(svc.startDate)}</span>{pencil('start', svc.startDate)}</>
+          : <button className="btn btn--small btn--outline" onClick={() => startEdit('start', '')}>+ Add start date</button>)}
+
+        {monthly ? (
+          <div className="muted" style={{ fontSize: '0.85rem' }}>
+            🔁 Rolling month to month — there's no end date, so no expiry alerts.
+            {startIsIso && ` Charged around the ${ordinal(Number(svc.startDate.slice(8, 10)))} each month.`}
+          </div>
+        ) : end ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            {row(`${endNoun} ends`, <>
+              <span style={{ fontWeight: 600, fontSize: '1.05rem', color: dateColor(end.date) }}>{formatDate(end.date)}{dayText(end.date)}</span>
+              {pencil('contract', end.date)}
+            </>)}
+            <span className="muted" style={{ fontSize: '0.75rem', textAlign: 'right' }}>{sourceTag}</span>
+          </div>
+        ) : (
+          <div style={{ padding: '12px', borderRadius: '8px', background: 'color-mix(in srgb, var(--warn) 8%, transparent)', border: '1px dashed var(--warn)' }}>
+            <div style={{ fontWeight: 600, color: 'var(--warn)', fontSize: '0.9rem', marginBottom: '4px' }}>⚠️ Can't work out when this ends</div>
+            <p className="muted" style={{ fontSize: '0.82rem', margin: '0 0 8px' }}>{missing || 'Add the end date.'}</p>
+            <button className="btn btn--small btn--outline" onClick={() => startEdit('contract', '')}>+ {endNoun} end date</button>
+          </div>
         )}
-        {svc.benefitEndDate && renderDateRow('Benefit ends', '🎁', svc.benefitEndDate, 'benefitEndDate')}
 
-        {/* Auto-renewal status */}
+        {svc.benefitEndDate && row('Benefit ends', <>
+          <span style={{ fontWeight: 600, color: dateColor(svc.benefitEndDate) }}>{formatDate(svc.benefitEndDate)}{dayText(svc.benefitEndDate)}</span>
+          {pencil('benefit', svc.benefitEndDate)}
+        </>)}
+
         {isAutoRenew !== null && (
           <div style={{
-            display: 'flex', alignItems: 'center', gap: '6px',
-            padding: '6px 10px', borderRadius: '6px',
-            background: isAutoRenew
-              ? 'color-mix(in srgb, var(--ok) 10%, transparent)'
-              : 'color-mix(in srgb, var(--warn) 10%, transparent)',
-            fontSize: '0.85rem',
+            display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', borderRadius: '6px', fontSize: '0.85rem',
+            background: isAutoRenew ? 'color-mix(in srgb, var(--ok) 10%, transparent)' : 'color-mix(in srgb, var(--warn) 10%, transparent)',
           }}>
             <span>{isAutoRenew ? '🔄' : '⚠️'}</span>
-            <span style={{ fontWeight: 500 }}>
-              {isAutoRenew ? 'Auto-renewal: On' : 'Auto-renewal: Off'}
-            </span>
+            <span style={{ fontWeight: 500 }}>{isAutoRenew ? 'Auto-renewal: On' : 'Auto-renewal: Off'}</span>
             {autoRenewEntry && <span className="muted" style={{ fontSize: '0.78rem' }}>({autoRenewEntry.value})</span>}
           </div>
         )}
 
-        {/* No date — warning + add button */}
-        {!hasDate && editingDate === null && (
-          <div style={{
-            padding: '12px', borderRadius: '8px',
-            background: 'color-mix(in srgb, var(--warn) 8%, transparent)',
-            border: '1px dashed var(--warn)',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <span>⚠️</span>
-              <span style={{ fontWeight: 600, color: 'var(--warn)', fontSize: '0.9rem' }}>
-                No end/renewal date set
-              </span>
-            </div>
-            <p className="muted" style={{ fontSize: '0.82rem', margin: '0 0 10px' }}>
-              Add a date to get reminders before your {isInsurance ? 'policy' : 'contract'} expires or renews.
-            </p>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <button className="btn btn--small btn--outline" onClick={() => { setEditingDate('contract'); setDateValue(''); }}>
-                + {isInsurance ? 'Policy end date' : 'Contract end date'}
-              </button>
-              <button className="btn btn--small btn--outline" onClick={() => { setEditingDate('benefit'); setDateValue(''); }}>
-                + Benefit end date
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Inline date editor */}
-        {editingDate && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '8px',
-            padding: '10px', borderRadius: '8px', background: 'var(--surface-2)',
-          }}>
-            <label style={{ fontWeight: 500, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
-              {editingDate === 'contract'
-                ? (isInsurance ? '🛡️ Policy ends' : '📝 Contract ends')
-                : '🎁 Benefit ends'}
-            </label>
-            <input
-              type="date"
-              className="input"
-              value={dateValue}
-              onChange={e => setDateValue(e.target.value)}
-              style={{ flex: 1, maxWidth: '180px' }}
-              autoFocus
-            />
-            <button
-              className="btn btn--small btn--primary"
-              disabled={!dateValue}
-              onClick={() => saveDate(
-                editingDate === 'contract' ? 'contractEndDate' : 'benefitEndDate',
-                dateValue,
-              )}
-            >Save</button>
-            {(editingDate === 'contract' ? svc.contractEndDate : svc.benefitEndDate) && (
-              <button
-                className="btn btn--small btn--danger btn--outline"
-                onClick={() => saveDate(editingDate === 'contract' ? 'contractEndDate' : 'benefitEndDate', '')}
-              >Remove</button>
+        {editing && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', padding: '10px', borderRadius: '8px', background: 'var(--surface-2)' }}>
+            <label style={{ fontWeight: 500, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{editingLabel}</label>
+            <input type="date" className="input" value={dateValue} onChange={e => setDateValue(e.target.value)} style={{ flex: 1, maxWidth: '180px' }} autoFocus />
+            <button className="btn btn--small btn--primary" disabled={!dateValue} onClick={() => saveDate(editing, dateValue)}>Save</button>
+            {editingValue && (
+              <button className="btn btn--small btn--danger btn--outline" onClick={() => saveDate(editing, '')}>Remove</button>
             )}
-            <button className="btn btn--small" onClick={() => setEditingDate(null)}>✕</button>
+            <button className="btn btn--small" onClick={() => setEditing(null)}>✕</button>
           </div>
         )}
       </div>
 
-      {/* Reminder frequency */}
+      {saveError && (
+        <p role="alert" style={{ color: 'var(--bad, #f44336)', fontSize: '0.82rem', margin: '0 0 8px', wordBreak: 'break-word' }}>
+          Couldn't save: {saveError}
+        </p>
+      )}
       <div className="chips" style={{ gap: '6px' }}>
         {(Object.entries(REMINDER_LABELS) as [ReminderFrequency, string][]).map(([key, label]) => (
           <button
             key={key}
             className="chip"
             aria-selected={(svc.reminderFrequency || 'BEFORE_EXPIRY') === key}
-            onClick={async () => {
-              const updated = { ...svc, reminderFrequency: key as ReminderFrequency, updatedAt: today() };
-              setSvc(updated);
-              await app.saveService(updated);
-            }}
+            onClick={() => persist({ reminderFrequency: key })}
           >
             {label}
           </button>
@@ -1473,7 +1486,7 @@ function ReminderSection({ svc, setSvc, app, tariffHistory }: {
       </div>
       <p className="muted" style={{ fontSize: '0.78rem', marginTop: '6px' }}>
         {(svc.reminderFrequency || 'BEFORE_EXPIRY') === 'BEFORE_EXPIRY'
-          ? hasDate ? 'Alert before expiry date.' : 'Set a date above to get expiry alerts.'
+          ? end ? 'You will be alerted before the end date.' : monthly ? 'Monthly subscriptions have no end date to alert on.' : 'Needs an end date (or start date + length) to alert.'
           : (svc.reminderFrequency || 'BEFORE_EXPIRY') === 'NONE'
           ? 'No reminders for this service.'
           : `${REMINDER_LABELS[svc.reminderFrequency || 'BEFORE_EXPIRY']} reminder.`}

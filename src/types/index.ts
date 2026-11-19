@@ -95,6 +95,7 @@ export interface Service {
   billCount?: number;            // computed: number of bills on record
   reminderFrequency?: ReminderFrequency;
   lastReminderSent?: string;
+  contractTermMonths?: number;   // 1 = monthly rolling (no end date), 12 = yearly, 24 = two years…
   createdAt: string;
   updatedAt: string;
 }
@@ -207,6 +208,68 @@ export function today(): string {
 export function daysUntil(iso: string): number | null {
   if (!iso) return null;
   return Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000);
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Add whole months to an ISO date, clamping to the last day of shorter months (31 Jan + 1m = 28/29 Feb). */
+export function addMonths(iso: string, months: number): string {
+  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
+  const total = (m - 1) + months;
+  const ny = y + Math.floor(total / 12);
+  const nm = ((total % 12) + 12) % 12;
+  const lastDay = new Date(Date.UTC(ny, nm + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(ny, nm, Math.min(d, lastDay))).toISOString().slice(0, 10);
+}
+
+export type EndDateSource = 'explicit' | 'document' | 'calculated';
+export interface EffectiveEnd { date: string; source: EndDateSource; detail: string }
+
+/** Labels that mean "this contract/policy/plan ends or renews on this date" */
+const END_LABEL = /(policy|contract|plan|lease|term)\s*(end|expir)|expiry date|expiration date|end date|renewal date/i;
+const NOT_END_LABEL = /benefit|start|commenc|issue|odometer|within/i;
+
+/**
+ * When does this service's contract end or renew?
+ * Order: a date the user entered → a date found in a scanned document → start date + contract length
+ * rolled forward to the next anniversary. Monthly-rolling services have no end date.
+ */
+export function effectiveEndDate(svc: Pick<Service, 'contractEndDate' | 'startDate' | 'contractTermMonths' | 'tariffHistory'>, now = today()): EffectiveEnd | null {
+  if (svc.contractTermMonths === 1) return null;
+
+  if (ISO_DATE.test(svc.contractEndDate || '') && svc.contractEndDate >= now) {
+    return { date: svc.contractEndDate, source: 'explicit', detail: 'entered by you' };
+  }
+
+  let best: EffectiveEnd | null = null;
+  for (const e of svc.tariffHistory || []) {
+    if (e.endDate || !ISO_DATE.test(e.value || '') || e.value < now) continue;
+    if (!END_LABEL.test(e.label) || NOT_END_LABEL.test(e.label)) continue;
+    if (!best || e.value > best.date) best = { date: e.value, source: 'document', detail: e.label };
+  }
+  if (best) return best;
+
+  const term = svc.contractTermMonths;
+  if (term && term > 1 && ISO_DATE.test(svc.startDate || '')) {
+    let k = 1;
+    let end = addMonths(svc.startDate, term);
+    while (end < now && k < 200) { k++; end = addMonths(svc.startDate, term * k); }
+    return { date: end, source: 'calculated', detail: `${term} months from ${svc.startDate}` };
+  }
+
+  if (ISO_DATE.test(svc.contractEndDate || '')) {
+    return { date: svc.contractEndDate, source: 'explicit', detail: 'entered by you' };
+  }
+  return null;
+}
+
+/** What we still need from the user so this service can be tracked. null = nothing missing. */
+export function missingInfo(svc: Service): string | null {
+  if (svc.status === 'CANCELLED' || svc.status === 'EXPIRED') return null;
+  if (svc.contractTermMonths === 1 || svc.reminderFrequency === 'NONE') return null;
+  if (effectiveEndDate(svc)) return null;
+  if (!svc.contractTermMonths) return 'Is this monthly, or a fixed term? Add the contract length and start date, or the end date.';
+  return 'Add the start date (or the end date) so the end of the term can be worked out.';
 }
 
 /**

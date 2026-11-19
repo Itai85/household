@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { hasAiConfig, getNotificationPrefs, setNotificationPrefs } from '../platform/storage';
-import { money, humanise, monthlyAmount, annualAmount, effectiveMonthly, daysUntil, formatDate, USAGE_CATEGORIES, CATEGORY_GROUPS, type ServiceCategory, type Service } from '../types';
+import { money, humanise, annualAmount, effectiveMonthly, daysUntil, formatDate, effectiveEndDate, missingInfo, addMonths, today, USAGE_CATEGORIES, CATEGORY_GROUPS, type ServiceCategory, type Service } from '../types';
 
 interface Props {
   onNavigate: (page: string, params?: Record<string, string>) => void;
@@ -185,6 +185,8 @@ export function HomeScreen({ onNavigate }: Props) {
 
       {/* ── Expiry alerts ── */}
       {services.length > 0 && <ExpiryAlerts services={services} onNavigate={onNavigate} />}
+      {services.length > 0 && <NeedsInfo services={services} onNavigate={onNavigate} />}
+      {services.length > 0 && <MonthlySubscriptions services={services} onNavigate={onNavigate} />}
 
       {/* ── Service table ── */}
       {services.length > 0 && (
@@ -246,6 +248,18 @@ interface ExpiryItem {
   days: number;
 }
 
+/** A dismissal only lasts for that expiry date, or for the current reminder period (so reminders come back). */
+function dismissKey(item: ExpiryItem): string {
+  if (item.type !== 'reminder') return `${item.serviceId}-${item.type}-${item.date}`;
+  const now = new Date();
+  const period = item.label.startsWith('Weekly')
+    ? `${now.getUTCFullYear()}-W${Math.floor((now.getTime() - Date.UTC(now.getUTCFullYear(), 0, 1)) / (7 * 86400000))}`
+    : item.label.startsWith('Quarterly')
+    ? `${now.getUTCFullYear()}-Q${Math.floor(now.getUTCMonth() / 3)}`
+    : `${now.getUTCFullYear()}-${now.getUTCMonth()}`;
+  return `${item.serviceId}-reminder-${period}`;
+}
+
 function ExpiryAlerts({ services, onNavigate }: { services: Service[]; onNavigate: Props['onNavigate'] }) {
   const [, forceUpdate] = useState(0);
   const notifPrefs = getNotificationPrefs();
@@ -267,10 +281,11 @@ function ExpiryAlerts({ services, onNavigate }: { services: Service[]; onNavigat
       continue;
     }
 
-    if (svc.contractEndDate) {
-      const d = daysUntil(svc.contractEndDate);
+    const end = effectiveEndDate(svc);
+    if (end) {
+      const d = daysUntil(end.date);
       if (d !== null && d >= -7 && d <= threshold) {
-        items.push({ serviceId: svc.id, nickname: svc.nickname, provider: svc.provider, type: 'contract', label: 'Contract', date: svc.contractEndDate, days: d });
+        items.push({ serviceId: svc.id, nickname: svc.nickname, provider: svc.provider, type: 'contract', label: end.source === 'calculated' ? 'Contract (calculated)' : 'Contract', date: end.date, days: d });
       }
     }
     if (svc.benefitEndDate) {
@@ -290,12 +305,12 @@ function ExpiryAlerts({ services, onNavigate }: { services: Service[]; onNavigat
   });
 
   const dismissed = new Set(notifPrefs.dismissed || []);
-  const visible = items.filter(it => !dismissed.has(`${it.serviceId}-${it.type}`));
+  const visible = items.filter(it => !dismissed.has(dismissKey(it)));
   if (visible.length === 0) return null;
 
   const dismiss = (item: ExpiryItem) => {
     const prefs = getNotificationPrefs();
-    prefs.dismissed = [...(prefs.dismissed || []), `${item.serviceId}-${item.type}`];
+    prefs.dismissed = [...(prefs.dismissed || []), dismissKey(item)];
     setNotificationPrefs(prefs);
     forceUpdate((n: number) => n + 1);
   };
@@ -349,6 +364,80 @@ function ExpiryAlerts({ services, onNavigate }: { services: Service[]; onNavigat
               >
                 ✕
               </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ── Services we can't track yet ── */
+
+function NeedsInfo({ services, onNavigate }: { services: Service[]; onNavigate: Props['onNavigate'] }) {
+  const items = services
+    .map(svc => ({ svc, msg: missingInfo(svc) }))
+    .filter((x): x is { svc: Service; msg: string } => !!x.msg);
+  if (items.length === 0) return null;
+
+  return (
+    <div className="card" style={{ border: '1px dashed var(--warn)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+        <span>⚠️</span>
+        <strong>Needs your input</strong>
+        <span className="muted" style={{ fontSize: '0.8rem' }}>{items.length} service{items.length > 1 ? 's' : ''} can't be tracked yet</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {items.map(({ svc, msg }) => (
+          <div
+            key={svc.id}
+            onClick={() => onNavigate('service', { id: svc.id })}
+            style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '2px' }}
+          >
+            <span style={{ fontWeight: 600 }}>{svc.nickname}</span>
+            <span className="muted" style={{ fontSize: '0.82rem' }}>{msg}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Monthly rolling subscriptions ── */
+
+function MonthlySubscriptions({ services, onNavigate }: { services: Service[]; onNavigate: Props['onNavigate'] }) {
+  const subs = services.filter(s => s.contractTermMonths === 1 && s.status !== 'CANCELLED' && s.status !== 'EXPIRED');
+  if (subs.length === 0) return null;
+
+  const nextCharge = (start: string): string => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start || '')) return '';
+    let k = 0;
+    let d = start;
+    while (d < today() && k < 600) { k++; d = addMonths(start, k); }
+    return d;
+  };
+  const total = subs.reduce((sum, s) => sum + effectiveMonthly(s), 0);
+
+  return (
+    <div className="card">
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' }}>
+        <strong>🔁 Monthly subscriptions</strong>
+        <span className="muted" style={{ fontSize: '0.85rem' }}>{money(total)} / month · no contract, no alerts</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {subs.map(s => {
+          const next = nextCharge(s.startDate);
+          return (
+            <div
+              key={s.id}
+              onClick={() => onNavigate('service', { id: s.id })}
+              style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline' }}
+            >
+              <span>
+                <span style={{ fontWeight: 600 }}>{s.nickname}</span>
+                {next && <span className="muted" style={{ marginLeft: '8px', fontSize: '0.78rem' }}>next ~{formatDate(next)}</span>}
+              </span>
+              <span style={{ fontVariantNumeric: 'tabular-nums' }}>{money(effectiveMonthly(s))}</span>
             </div>
           );
         })}

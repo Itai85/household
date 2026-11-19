@@ -57,13 +57,13 @@ jobs:
 
           console.log(`${userIds.length} user(s) with notifications enabled`);
 
-          // 2. Get services for those users that have expiry dates
+          // 2. Get all services (end dates can also be calculated or come from scanned documents)
           const servicesRes = await fetch(
-            `${SUPABASE_URL}/rest/v1/services?select=id,nickname,provider,category,contract_end_date,benefit_end_date,reminder_frequency,last_reminder_sent,user_id,status&or=(contract_end_date.neq.,benefit_end_date.neq.,reminder_frequency.in.(WEEKLY,MONTHLY,QUARTERLY))`,
+            `${SUPABASE_URL}/rest/v1/services?select=id,nickname,provider,category,start_date,contract_end_date,benefit_end_date,contract_term_months,tariff_history,reminder_frequency,last_reminder_sent,user_id,status`,
             { headers }
           );
           const services = await servicesRes.json();
-          console.log(`Found ${services.length} services with dates or reminders`);
+          console.log(`Found ${services.length} services`);
 
           // 3. Check each service against user prefs
           const today = new Date();
@@ -83,6 +83,44 @@ jobs:
           }
 
           const FREQ_DAYS = { WEEKLY: 7, MONTHLY: 30, QUARTERLY: 90 };
+
+          // Keep in sync with effectiveEndDate() in src/types/index.ts
+          const ISO = /^\d{4}-\d{2}-\d{2}$/;
+          const END_LABEL = /(policy|contract|plan|lease|term)\s*(end|expir)|expiry date|expiration date|end date|renewal date/i;
+          const NOT_END_LABEL = /benefit|start|commenc|issue|odometer|within/i;
+
+          function addMonths(iso, months) {
+            const [y, m, d] = iso.split('-').map(Number);
+            const total = (m - 1) + months;
+            const ny = y + Math.floor(total / 12);
+            const nm = ((total % 12) + 12) % 12;
+            const lastDay = new Date(Date.UTC(ny, nm + 1, 0)).getUTCDate();
+            return new Date(Date.UTC(ny, nm, Math.min(d, lastDay))).toISOString().slice(0, 10);
+          }
+
+          function effectiveEnd(svc) {
+            const term = svc.contract_term_months;
+            if (term === 1) return null;
+            if (ISO.test(svc.contract_end_date || '') && svc.contract_end_date >= todayStr) return svc.contract_end_date;
+
+            let history = svc.tariff_history;
+            if (typeof history === 'string') { try { history = JSON.parse(history); } catch { history = []; } }
+            let best = null;
+            for (const e of Array.isArray(history) ? history : []) {
+              if (e.endDate || !ISO.test(e.value || '') || e.value < todayStr) continue;
+              if (!END_LABEL.test(e.label || '') || NOT_END_LABEL.test(e.label || '')) continue;
+              if (!best || e.value > best) best = e.value;
+            }
+            if (best) return best;
+
+            if (term > 1 && ISO.test(svc.start_date || '')) {
+              let k = 1;
+              let end = addMonths(svc.start_date, term);
+              while (end < todayStr && k < 200) { k++; end = addMonths(svc.start_date, term * k); }
+              return end;
+            }
+            return ISO.test(svc.contract_end_date || '') ? svc.contract_end_date : null;
+          }
 
           // Group alerts by user
           const userAlerts = {};
@@ -116,8 +154,9 @@ jobs:
 
             const threshold = prefs.daysBefore;
 
-            if (svc.contract_end_date) {
-              const d = daysUntil(svc.contract_end_date);
+            const contractEnd = effectiveEnd(svc);
+            if (contractEnd) {
+              const d = daysUntil(contractEnd);
               if (d !== null && d >= 0 && d <= threshold && sinceLast >= 7) {
                 if (!userAlerts[svc.user_id]) userAlerts[svc.user_id] = [];
                 userAlerts[svc.user_id].push({
@@ -125,7 +164,7 @@ jobs:
                   name: svc.nickname,
                   provider: svc.provider || '',
                   type: 'contract',
-                  date: svc.contract_end_date,
+                  date: contractEnd,
                   days: d,
                 });
               }
