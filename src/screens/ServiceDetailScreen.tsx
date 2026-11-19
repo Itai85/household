@@ -122,8 +122,14 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
             const v = ins.value;
             if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) continue;
             if (/start\s*date/i.test(ins.label)) foundDates.startDate ||= v;
-            else if (/benefit\s*(end|period)|policy\s*(end|expir)/i.test(ins.label)) foundDates.benefitEndDate ||= v;
-            else if (/contract\s*(end|expir)|lease\s*end|end\s*date/i.test(ins.label)) foundDates.contractEndDate ||= v;
+            else if (v >= today()) {
+              // Past end dates are stale (e.g. example text in a PDS), so only upcoming ones are kept; latest wins.
+              if (/benefit\s*(end|period)|policy\s*(end|expir)/i.test(ins.label)) {
+                if (!foundDates.benefitEndDate || v > foundDates.benefitEndDate) foundDates.benefitEndDate = v;
+              } else if (/contract\s*(end|expir)|lease\s*end|end\s*date/i.test(ins.label)) {
+                if (!foundDates.contractEndDate || v > foundDates.contractEndDate) foundDates.contractEndDate = v;
+              }
+            }
             continue;
           }
           if (allEntries.some(e => e.label.toLowerCase() === ins.label.toLowerCase())) continue;
@@ -1437,6 +1443,12 @@ function ReminderSection({ svc, setSvc, app, tariffHistory }: {
                 dateValue,
               )}
             >Save</button>
+            {(editingDate === 'contract' ? svc.contractEndDate : svc.benefitEndDate) && (
+              <button
+                className="btn btn--small btn--danger btn--outline"
+                onClick={() => saveDate(editingDate === 'contract' ? 'contractEndDate' : 'benefitEndDate', '')}
+              >Remove</button>
+            )}
             <button className="btn btn--small" onClick={() => setEditingDate(null)}>✕</button>
           </div>
         )}
