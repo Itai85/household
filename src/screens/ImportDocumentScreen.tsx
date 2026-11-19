@@ -169,6 +169,7 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
   const [pastedText, setPastedText] = useState('');
   const [sourceMode, setSourceMode] = useState<'file' | 'text'>('file');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [pendingServiceId] = useState(() => uuid()); // stable ID for retries
 
   // ─── Process uploaded file ────────────────────────────────
@@ -547,6 +548,7 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
     if (saving) return;
     if (files.length === 0 && sourceMode === 'file') return;
     setSaving(true);
+    setSaveError('');
 
     try {
     const enabledRows = rows.filter(r => r.enabled);
@@ -864,6 +866,8 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
     }, 600);
     } catch (err) {
       console.error('Save failed:', err);
+      const msg = err && typeof err === 'object' && 'message' in err ? String((err as { message: unknown }).message) : String(err);
+      setSaveError(msg || 'Unknown error');
       setSaving(false);
     }
   };
@@ -1340,6 +1344,15 @@ export function ImportDocumentScreen({ serviceId: preSelectedServiceId, onDone }
       </details>
 
       {/* ─── Save bar ────────────────────────────────────── */}
+      {saveError && (
+        <div className="card" role="alert" style={{ border: '1px solid var(--bad, #f44336)' }}>
+          <strong style={{ color: 'var(--bad, #f44336)' }}>Save didn't finish.</strong>
+          <p style={{ margin: '4px 0 0', fontSize: '0.85rem' }}>
+            Part of this upload may already be saved — check the service before saving again to avoid duplicates.
+          </p>
+          <p className="muted" style={{ margin: '4px 0 0', fontSize: '0.78rem', wordBreak: 'break-word' }}>{saveError}</p>
+        </div>
+      )}
       <div className="save-bar save-bar--sticky">
         <button className="btn" onClick={onDone}>Discard</button>
         <button
