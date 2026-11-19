@@ -74,6 +74,7 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
       const allDocs = await app.getDocs(serviceId);
       const aiConfig = getEffectiveAiConfig();
       const allEntries: TariffEntry[] = [];
+      const foundDates: { startDate?: string; benefitEndDate?: string; contractEndDate?: string } = {};
       let summary = '';
 
       for (let i = 0; i < allDocs.length; i++) {
@@ -117,7 +118,14 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
 
         const effectiveDate = doc.docDate || today();
         for (const ins of result.insights) {
-          if (['date'].includes(ins.section)) continue;
+          if (ins.section === 'date') {
+            const v = ins.value;
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) continue;
+            if (/start\s*date/i.test(ins.label)) foundDates.startDate ||= v;
+            else if (/benefit\s*(end|period)|policy\s*(end|expir)/i.test(ins.label)) foundDates.benefitEndDate ||= v;
+            else if (/contract\s*(end|expir)|lease\s*end|end\s*date/i.test(ins.label)) foundDates.contractEndDate ||= v;
+            continue;
+          }
           if (allEntries.some(e => e.label.toLowerCase() === ins.label.toLowerCase())) continue;
           allEntries.push({
             id: uuid(),
@@ -136,6 +144,9 @@ export function ServiceDetailScreen({ serviceId, onNavigate, onBack }: Props) {
         ...svc,
         tariffHistory: allEntries,
         summary: summary || svc.summary || '',
+        startDate: svc.startDate || foundDates.startDate || '',
+        benefitEndDate: svc.benefitEndDate || foundDates.benefitEndDate || '',
+        contractEndDate: svc.contractEndDate || foundDates.contractEndDate || '',
         updatedAt: today(),
       };
 
