@@ -10,6 +10,8 @@
  * The prompts stay the same — they're just text.
  */
 
+import { anthropicBody, firstText } from './anthropic-compat';
+
 // ─── Provider types ──────────────────────────────────────────
 
 export type ProviderId = 'anthropic' | 'openai' | 'gemini' | 'openai-compatible';
@@ -67,8 +69,11 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
     requiresBaseUrl: false,
     docs: 'https://console.anthropic.com/settings/keys',
     models: [
-      { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', description: 'Fast & cheap (~$0.001/doc)', tier: 'fast', pricing: { input: 0.80, output: 4.00 } },
-      { id: 'claude-sonnet-4-20250514', label: 'Sonnet 4', description: 'Smarter (~$0.005/doc)', tier: 'smart', pricing: { input: 3.00, output: 15.00 } },
+      // Auto mode picks the first model of each tier, so the newest comes first.
+      { id: 'claude-haiku-5-5', label: 'Haiku 5.5', description: 'Fast & cheapest', tier: 'fast', pricing: { input: 0.10, output: 0.50 } },
+      { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', description: 'Smarter, for contracts & insurance', tier: 'smart', pricing: { input: 2.00, output: 10.00 } },
+      { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5 (older)', description: 'Previous fast model', tier: 'fast', pricing: { input: 1.00, output: 5.00 } },
+      { id: 'claude-sonnet-4-20250514', label: 'Sonnet 4 (older)', description: 'Previous smart model', tier: 'smart', pricing: { input: 3.00, output: 15.00 } },
     ],
   },
   openai: {
@@ -152,12 +157,7 @@ async function callAnthropic(config: AiConfig, req: AiRequest): Promise<AiRespon
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true',
     },
-    body: JSON.stringify({
-      model: config.modelId,
-      max_tokens: req.maxTokens,
-      system: req.systemPrompt,
-      messages: [{ role: 'user', content: req.userMessage }],
-    }),
+    body: JSON.stringify(anthropicBody(config.modelId, req.maxTokens, req.systemPrompt, req.userMessage)),
   });
 
   if (!response.ok) {
@@ -166,8 +166,8 @@ async function callAnthropic(config: AiConfig, req: AiRequest): Promise<AiRespon
   }
 
   const data = await response.json();
-  const content = data.content?.[0]?.text;
-  if (!content) throw new Error('No content in Anthropic response');
+  const content = firstText(data.content);
+  if (!content) throw new Error(`No text in Anthropic response (stop reason: ${data.stop_reason || 'unknown'})`);
 
   return {
     content,

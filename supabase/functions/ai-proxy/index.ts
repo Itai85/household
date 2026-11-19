@@ -7,8 +7,8 @@
  * Secrets required (set via `supabase secrets set`):
  *   AI_PROVIDER   — "anthropic" | "openai" | "gemini"
  *   AI_API_KEY    — the provider's API key
- *   AI_MODEL_FAST — model ID for fast/cheap tier  (e.g. "claude-haiku-4-5-20251001")
- *   AI_MODEL_SMART — model ID for smart tier       (e.g. "claude-sonnet-4-20250514")
+ *   AI_MODEL_FAST — model ID for fast/cheap tier  (e.g. "claude-haiku-5-5")
+ *   AI_MODEL_SMART — model ID for smart tier       (e.g. "claude-sonnet-5-5")
  *
  * Request body:
  *   { systemPrompt, userMessage, maxTokens, tier?: "fast"|"smart" }
@@ -112,6 +112,29 @@ Deno.serve(async (req) => {
 
 // ─── Provider implementations ───────────────────────────────
 
+// Keep in sync with src/platform/anthropic-compat.ts (Edge Functions can't import from src).
+// Claude 5 models think by default; thinking tokens count against max_tokens and a thinking
+// block can come first, so ask for low effort with headroom and read the first text block.
+function anthropicBody(model: string, maxTokens: number, system: string, user: string) {
+  const body: Record<string, unknown> = {
+    model, max_tokens: maxTokens, system,
+    messages: [{ role: "user", content: user }],
+  };
+  if (/^claude-(haiku|sonnet|opus)-5(-|$)/.test(model)) {
+    body.max_tokens = maxTokens + 2048;
+    body.output_config = { effort: "low" };
+  }
+  return body;
+}
+
+function firstText(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  for (const block of content) {
+    if (block && block.type === "text" && typeof block.text === "string") return block.text;
+  }
+  return "";
+}
+
 async function callAnthropic(
   apiKey: string, model: string, system: string, user: string, maxTokens: number
 ) {
@@ -122,16 +145,12 @@ async function callAnthropic(
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify({
-      model, max_tokens: maxTokens,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
+    body: JSON.stringify(anthropicBody(model, maxTokens, system, user)),
   });
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`);
   const data = await res.json();
   return {
-    content: data.content?.[0]?.text || "",
+    content: firstText(data.content),
     inputTokens: data.usage?.input_tokens || 0,
     outputTokens: data.usage?.output_tokens || 0,
     model,
